@@ -1,0 +1,30 @@
+{
+    "name": "mcp-host",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js",
+        "start:mcp": "node tesst.js",
+        "stop:mcp": "powershell -Command \"Get-NetTCPConnection -LocalPort 3334 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }\""
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.25.2",
+        "axios": "^1.13.4",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^4.22.1",
+        "node-cron": "^4.2.1",
+        "node-fetch": "^3.3.2",
+        "nodemailer": "^7.0.13",
+        "zod": "^4.3.5"
+    },
+    "main": "index.js",
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "description": "",
+    "devDependencies": {
+        "@types/node": "^25.0.9",
+        "typescript": "^5.9.3"
+    }
+}

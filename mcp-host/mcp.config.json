@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "amap-maps": {
+            "type": "streamable_http",
+            "url": "https://mcp.api-inference.modelscope.net/b53e4c9ed0054b/mcp",
+            "headers": {
+                "Authorization": "Bearer ms-0fceb753-7fef-47d9-b6c1-4c73e7bf80ed"
+            }
+        }
+    }
+}
