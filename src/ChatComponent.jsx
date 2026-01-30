@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getDeepSeekResponse } from './services/deepseekService';
-
+import { io } from 'socket.io-client';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
   const style = document.createElement('style');
@@ -23,13 +23,17 @@ if (!document.getElementById('chat-component-styles')) {
   `;
   document.head.appendChild(style);
 }
-
+const socket = io('http://localhost:3334');
 const ChatComponent = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef(null);
+
+  // --- 新增状态：控制确认弹窗 ---
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingReport, setPendingReport] = useState("");
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -39,6 +43,36 @@ const ChatComponent = () => {
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    // 监听后端发来的“待确认日报”
+    socket.on("request_report_confirm", (data) => {
+      console.log("📬 收到后端生成的日报内容");
+      setPendingReport(data.content);
+      setShowConfirmModal(true); // 自动弹出确认框
+    });
+
+    // 监听发送结果
+    socket.on("report_status", (res) => {
+      if (res.success) {
+        alert("✅ 邮件已成功发送到您的邮箱！");
+      } else {
+        alert("❌ 发送失败: " + res.msg);
+      }
+    });
+
+    return () => {
+      socket.off("request_report_confirm");
+      socket.off("report_status");
+    };
+  }, []);
+  const handleApprove = () => {
+    socket.emit("approve_send_daily"); // 告诉后端：可以发了
+    setShowConfirmModal(false);
+  };
+  const handleReject = () => {
+    socket.emit("reject_send_daily"); // 告诉后端：不发了，取消
+    setShowConfirmModal(false);
+  };
   const handleSend = async () => {
     if (!input.trim()) return;
 
@@ -110,6 +144,51 @@ const ChatComponent = () => {
       backgroundColor: '#ffffff',
     }}>
       {/* 顶部导航栏 */}
+      {showConfirmModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white', padding: '30px', borderRadius: '16px',
+            width: '80%', maxWidth: '600px', maxHeight: '80vh',
+            display: 'flex', flexDirection: 'column', gap: '20px'
+          }}>
+            <h3 style={{ margin: 0, color: '#2c3e50' }}>🤖 日报自动生成确认</h3>
+            <p style={{ color: '#666', fontSize: '14px' }}>AI 已经为您汇总好内容，请确认是否发送邮件：</p>
+
+            <div style={{
+              flex: 1, overflowY: 'auto', backgroundColor: '#f8f9fa',
+              padding: '15px', borderRadius: '8px', border: '1px solid #ddd',
+              whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6'
+            }}>
+              {pendingReport}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={handleReject}
+                style={{
+                  padding: '10px 20px', borderRadius: '8px', border: '1px solid #ddd',
+                  cursor: 'pointer', backgroundColor: '#eee'
+                }}
+              >
+                取消发送
+              </button>
+              <button
+                onClick={handleApprove}
+                style={{
+                  padding: '10px 20px', borderRadius: '8px', border: 'none',
+                  cursor: 'pointer', backgroundColor: '#3498db', color: 'white', fontWeight: 'bold'
+                }}
+              >
+                确认发送邮件
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{
         backgroundColor: '#1a2530',
         padding: '0 32px',

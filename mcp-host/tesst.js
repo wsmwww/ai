@@ -12,6 +12,49 @@ app.use(express.json());
 import nodemailer from 'nodemailer';
 import cron from 'node-cron';
 import { runCronReport } from './cronAgent.js';
+
+import { Server } from "socket.io";
+import http from "http";
+
+
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: "*" } // 允许你的 React 前端连接
+});
+
+let pendingReportTask = null;
+
+// ==================== Socket 实时通信逻辑 ====================
+io.on("connection", (socket) => {
+    console.log("📱 前端交互页面已连接，准备好推送确认弹窗");
+
+    // 接收前端点击“确认发送”的指令
+    socket.on("approve_send_daily", async () => {
+        if (pendingReportTask) {
+            console.log("🚀 收到用户确认，开始正式发送邮件...");
+            try {
+                // 调用你代码中已有的发送逻辑
+                const mailOptions = {
+                    from: '1799706863@qq.com',
+                    to: '1799706863@qq.com',
+                    subject: '今日工作日报 (已确认)',
+                    text: pendingReportTask.content
+                };
+                await transporter.sendMail(mailOptions);
+                socket.emit("report_status", { success: true, msg: "邮件已飞向邮箱！" });
+                pendingReportTask = null; // 清空任务
+            } catch (error) {
+                socket.emit("report_status", { success: false, msg: error.message });
+            }
+        }
+    });
+
+    socket.on("reject_send_daily", () => {
+        console.log("🗑️ 用户取消了本次发送");
+        pendingReportTask = null;
+    });
+});
+
 // 魔塔MCP配置（从您提供的JSON配置中获取）
 const MODEL_SCOPE_MCP_URL = "https://mcp.api-inference.modelscope.net/9581e69d396b47/mcp";
 const MODEL_SCOPE_API_KEY = "ms-726c3eb4-4fa0-44ad-83b7-4b35d5e5f92b";
@@ -175,7 +218,7 @@ const transporter = nodemailer.createTransport({
 app.post('/mcp/call', async (req, res) => {
     try {
         const { mcp, tool, args } = req.body;
-       
+
         if (tool === 'get_git_commits') {
             return res.json({
                 success: true,
@@ -293,38 +336,29 @@ app.get('/mcp/status', (req, res) => {
 // ==================== 启动服务器 ====================
 const PORT = process.env.PORT || 3334;
 
-app.listen(PORT, () => {
-    console.log(`
-    ╔══════════════════════════════════════════════════════════════╗
-    ║            🚀 魔塔MCP代理服务器启动成功                      ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║ 本地地址: http://localhost:${PORT}                             ║
-    ║ MCP端点: ${MODEL_SCOPE_MCP_URL}                              ║
-    ║ API Key: ${MODEL_SCOPE_API_KEY.substring(0, 15)}...         ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║ 📋 可用端点:                                                 ║
-    ║   POST /mcp/initialize - 初始化MCP服务                       ║
-    ║   GET  /mcp/tools      - 获取工具列表                        ║
-    ║   POST /mcp/call      - 调用MCP工具（通用）                  ║
-    ║   POST /mcp/amap      - 调用高德地图工具                     ║
-    ║   GET  /mcp/status    - 获取状态                             ║
-    ║   GET  /health        - 健康检查                             ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║ 💡 使用说明:                                                 ║
-    ║   1. 首先调用 POST http://localhost:${PORT}/mcp/initialize   ║
-    ║   2. 然后调用 GET  http://localhost:${PORT}/mcp/tools        ║
-    ║   3. 最后调用 POST http://localhost:${PORT}/mcp/call         ║
-    ╚══════════════════════════════════════════════════════════════╝
-    `);
-});
-// 一个小时执行一次
-cron.schedule('*/30 * * * * *', async () => {
+
+// 20s 执行一次
+cron.schedule('*/20 * * * * *', async () => {
     try {
-        await runCronReport();
+        console.log("🤖 AI 正在生成日报内容...");
+        // 这里的 runCronReport 内部要确保不直接调 send_daily_email
+        const finalReport = await runCronReport();
+
+        // 将内容存入待办任务
+        pendingReportTask = { content: finalReport };
+
+        // 💡 关键：通过 Socket 主动把内容推给前端，触发弹窗
+        io.emit("request_report_confirm", {
+            content: finalReport,
+            time: new Date().toLocaleString()
+        });
+
+        console.log("📢 内容已生成，等待前端用户确认...");
     } catch (err) {
         console.error("❌ 定时任务异常:", err.message);
     }
 });
+
 console.log("⏰ 定时任务已就绪：周一至周五 18:00");
 process.on('SIGTERM', async () => {
     console.log('\n🛑 收到 SIGTERM，关闭 MCP 客户端...');
@@ -340,4 +374,13 @@ process.on('SIGINT', async () => {
         try { await session.client.close(); } catch { }
     }
     process.exit(0);
+});
+
+server.listen(PORT, () => {
+    console.log(`
+    ╔══════════════════════════════════════════════╗
+    ║        🚀 系统已统一在端口 ${PORT} 启动         ║
+    ║      HTTP 和 Socket.io 共享此端口成功          ║
+    ╚══════════════════════════════════════════════╝
+    `);
 });

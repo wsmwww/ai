@@ -16,6 +16,7 @@
         "node-cron": "^4.2.1",
         "node-fetch": "^3.3.2",
         "nodemailer": "^7.0.13",
+        "socket.io": "^4.8.3",
         "zod": "^4.3.5"
     },
     "main": "index.js",
