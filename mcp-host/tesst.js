@@ -3,15 +3,13 @@ import express from 'express';
 import cors from 'cors';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import os from 'os';
-import path from 'path';
-import fs from 'fs';
 const app = express();
 app.use(cors());
 app.use(express.json());
 import nodemailer from 'nodemailer';
 import cron from 'node-cron';
 import { runCronReport } from './cronAgent.js';
+import { sendMailInternal, localToolsLogic } from './mcpLogic.js';
 
 import { Server } from "socket.io";
 import http from "http";
@@ -21,9 +19,9 @@ const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "*" } // 允许你的 React 前端连接
 });
+const PORT = process.env.PORT || 3334;
 
 let pendingReportTask = null;
-
 // ==================== Socket 实时通信逻辑 ====================
 io.on("connection", (socket) => {
     console.log("📱 前端交互页面已连接，准备好推送确认弹窗");
@@ -33,16 +31,9 @@ io.on("connection", (socket) => {
         if (pendingReportTask) {
             console.log("🚀 收到用户确认，开始正式发送邮件...");
             try {
-                // 调用你代码中已有的发送逻辑
-                const mailOptions = {
-                    from: '1799706863@qq.com',
-                    to: '1799706863@qq.com',
-                    subject: '今日工作日报 (已确认)',
-                    text: pendingReportTask.content
-                };
-                await transporter.sendMail(mailOptions);
+                await sendMailInternal('今日工作日报 (已确认)', pendingReportTask.content);
                 socket.emit("report_status", { success: true, msg: "邮件已飞向邮箱！" });
-                pendingReportTask = null; // 清空任务
+                pendingReportTask = null;
             } catch (error) {
                 socket.emit("report_status", { success: false, msg: error.message });
             }
@@ -56,8 +47,6 @@ io.on("connection", (socket) => {
 });
 
 // 魔塔MCP配置（从您提供的JSON配置中获取）
-const MODEL_SCOPE_MCP_URL = "https://mcp.api-inference.modelscope.net/9581e69d396b47/mcp";
-const MODEL_SCOPE_API_KEY = "ms-726c3eb4-4fa0-44ad-83b7-4b35d5e5f92b";
 const MCP_CONFIGS = {
     amap: {
         name: "amap-maps",
@@ -80,51 +69,17 @@ const mcpSessions = {};
  */
 async function initializeMcpSession(mcpKey, force = false) {
     const config = MCP_CONFIGS[mcpKey];
-    if (!config) {
-        throw new Error(`未知的 MCP: ${mcpKey}`);
-    }
-    if (!force && mcpSessions[mcpKey]?.isInitialized) {
-        return mcpSessions[mcpKey];
-    }
+    if (!config) throw new Error(`未知的 MCP: ${mcpKey}`);
+    if (!force && mcpSessions[mcpKey]?.isInitialized) return mcpSessions[mcpKey];
 
-    if (force && mcpSessions[mcpKey]?.client) {
-        try {
-            await mcpSessions[mcpKey].client.close();
-        } catch { }
-    }
-
-    console.log(`🔌 正在连接 MCP [${mcpKey}]...`);
-    const transport = new StreamableHTTPClientTransport(
-        new URL(config.url),
-        {
-            requestInit: {
-                headers: {
-                    Authorization: `Bearer ${config.apiKey}`,
-                },
-            },
-        }
-    );
-    const client = new Client(
-        { name: config.name, version: config.version },
-        { capabilities: { tools: {}, prompts: {}, resources: {} } }
-    );
-
+    const transport = new StreamableHTTPClientTransport(new URL(config.url), {
+        requestInit: { headers: { Authorization: `Bearer ${config.apiKey}` } }
+    });
+    const client = new Client({ name: config.name, version: "1.0.0" }, { capabilities: { tools: {} } });
     await client.connect(transport);
-
     const toolsResult = await client.listTools();
-
-    mcpSessions[mcpKey] = {
-        client,
-        tools: toolsResult.tools || [],
-        isInitialized: true,
-    };
-
-    console.log(
-        `✅ MCP [${mcpKey}] 初始化完成，工具数: ${mcpSessions[mcpKey].tools.length}`
-    );
-
+    mcpSessions[mcpKey] = { client, tools: toolsResult.tools || [], isInitialized: true };
     return mcpSessions[mcpKey];
-
 }
 
 /**
@@ -142,28 +97,40 @@ async function callMcpTool(mcpKey, toolName, args = {}) {
         });
 
     } catch (err) {
-        // 👇 核心判断
-        const msg = err?.message || '';
-        if (
-            msg.includes('SessionExpired') ||
-            msg.includes('session') ||
-            msg.includes('expired')
-        ) {
-            console.warn(`♻️ MCP [${mcpKey}] session 过期，重连中...`);
+        // 打印原始错误，方便调试
+        console.error(`❌ MCP [${mcpKey}] 调用出错:`, err.message);
 
-            await initializeMcpSession(mcpKey, true);
+        // 核心逻辑：精准匹配魔塔的 SessionExpired 错误
+        const errorStr = JSON.stringify(err) || err.message || '';
+        const isExpired = errorStr.includes('SessionExpired') || 
+                          errorStr.includes('会话已过期') || 
+                          errorStr.includes('expired');
 
-            // 👇 只重试一次
-            return await mcpSessions[mcpKey].client.callTool({
-                name: toolName,
-                arguments: args,
-            });
+        if (isExpired) {
+            console.warn(`♻️ 检测到魔塔会话过期，正在尝试强制重连 [${mcpKey}]...`);
+            
+            try {
+                // 1. 强制重新初始化（force = true）
+                await initializeMcpSession(mcpKey, true);
+                
+                // 2. 重连后立即重试本次调用
+                console.log(`🚀 重连成功，正在重试工具 [${toolName}]`);
+                return await mcpSessions[mcpKey].client.callTool({
+                    name: toolName,
+                    arguments: args,
+                });
+            } catch (retryErr) {
+                console.error(`💀 重连后重试依然失败:`, retryErr.message);
+                throw retryErr;
+            }
         }
+        
+        // 如果不是过期错误，直接抛出
         throw err;
     }
 }
 
-// ==================== Express API 端点 ====================
+// ==================== API 路由 ====================
 
 /**
  * 1. 初始化MCP服务端点
@@ -204,77 +171,25 @@ app.get('/mcp/tools', async (req, res) => {
 });
 
 
-/**
- * 3. 调用工具端点（通用）
- */
-// 1. 配置邮件发送器
-const transporter = nodemailer.createTransport({
-    service: 'qq', // 如果是 Gmail 就写 'gmail'
-    auth: {
-        user: '1799706863@qq.com',
-        pass: 'xlwvmvkmvsazbhbe' // 刚才获取的 16 位授权码
-    }
-});
 app.post('/mcp/call', async (req, res) => {
     try {
         const { mcp, tool, args } = req.body;
-
-        if (tool === 'get_git_commits') {
-            return res.json({
-                success: true,
-                data: [
-                    { time: "10:30", message: "feat: 完成 MCP 多轮调用逻辑" },
-                    { time: "14:20", message: "fix: 修复桌面路径读取失败的 bug" },
-                    { time: "16:00", message: "style: 美化车票查询表格样式" }
-                ]
-            });
+        // 优先检查是否命中本地逻辑 (git/email/save)
+        if (localToolsLogic[tool]) {
+            const result = await localToolsLogic[tool](args);
+            return res.json({ success: true, data: result });
         }
-        if (tool === 'save_daily_report') {
-            try {
-                const { content, fileName } = args; // AI 会提供日报内容和文件名
-                const reportPath = path.join(os.homedir(), 'Desktop', fileName || '正式日报.txt');
+        // 否则调用魔塔 MCP 工具
+        // const result = await callMcpTool(mcp, tool, args || {});
+        // const content = result?.content?.[0];
+        // const data = content?.type === 'json'
+        //     ? content.data
+        //     : content?.text ?? content;
+        // res.json({ success: true, mcp, tool, data, raw: result });
 
-                // 将 AI 生成的内容写入文件
-                fs.writeFileSync(reportPath, content, 'utf-8');
-
-                return res.json({
-                    success: true,
-                    data: { message: `日报已成功保存至：${reportPath}` }
-                });
-            } catch (error) {
-                return res.json({ success: false, error: '保存失败：' + error.message });
-            }
-        }
-        // 邮箱操作
-        if (tool === 'send_daily_email') {
-            try {
-                const { subject, content, to } = args;
-                console.log(subject, content, to, "---------")
-                const mailOptions = {
-                    from: '1799706863@qq.com',
-                    to: to || '1799706863@qq.com', // 默认发给自己
-                    subject: subject || '今日工作日报',
-                    text: content // 日报内容
-                };
-
-                const info = await transporter.sendMail(mailOptions);
-                console.log('📧 邮件已发送:', info.messageId);
-
-                return res.json({
-                    success: true,
-                    data: { message: "邮件发送成功！", id: info.messageId }
-                });
-            } catch (error) {
-                console.error("❌ 邮件发送失败:", error);
-                return res.json({ success: false, error: '邮件发送失败: ' + error.message });
-            }
-        }
         const result = await callMcpTool(mcp, tool, args || {});
-        const content = result?.content?.[0];
-        const data = content?.type === 'json'
-            ? content.data
-            : content?.text ?? content;
-        res.json({ success: true, mcp, tool, data, raw: result });
+        res.json({ success: true, data: result.content[0] });
+
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -312,12 +227,7 @@ app.post('/mcp/amap', async (req, res) => {
     }
 });
 
-/**
- * 5. 健康检查端点
- */
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-});
+
 
 /**
  * 6. 状态检查端点
@@ -334,11 +244,11 @@ app.get('/mcp/status', (req, res) => {
 });
 
 // ==================== 启动服务器 ====================
-const PORT = process.env.PORT || 3334;
 
-
-// 20s 执行一次
-cron.schedule('*/20 * * * * *', async () => {
+const randomMinute = Math.floor(Math.random() * 60);
+// 每天19点后的某分钟执行   `${randomMinute} 19 * * 1-5`
+// 30s执行 '*/30 * * * * *'
+cron.schedule(`${randomMinute} 19 * * 1-5`, async () => {
     try {
         console.log("🤖 AI 正在生成日报内容...");
         // 这里的 runCronReport 内部要确保不直接调 send_daily_email

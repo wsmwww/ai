@@ -1,8 +1,7 @@
 import axios from 'axios';
+import { WEATHER_API_KEY } from '../config';
 
-// 天气 API 密钥（需要注册获取，例如 OpenWeatherMap API）
-const WEATHER_API_KEY =
-    import.meta.env.VITE_WEATHER_API_KEY;
+// 从配置文件读取天气 API 密钥
 // https://api.openweathermap.org/data/2.5/weather?units=metric&lang=zh_cn&q=Shenzhen
 // 创建天气 API 实例
 const weatherApi = axios.create({

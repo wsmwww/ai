@@ -1,8 +1,8 @@
 import axios from 'axios';
+import { AMAP_API_KEY } from '../config';
 
-// 从环境变量读取高德地图API密钥
-const AMAP_KEY =
-    import.meta.env.VITE_AMAP_API_KEY;
+// 从配置文件读取高德地图API密钥
+const AMAP_KEY = AMAP_API_KEY;
 
 // 创建高德地图API实例
 const amapApi = axios.create({

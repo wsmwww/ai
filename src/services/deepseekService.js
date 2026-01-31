@@ -1,13 +1,12 @@
 import axios from 'axios';
 import { callMcpTool, getMcpTools } from './mcpService';
-
-const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
+import { DEEPSEEK_API_KEY } from '../config';
 
 const deepseekApi = axios.create({
     baseURL: 'https://api.deepseek.com/v1', // 👈 修正：不要在这里加具体的 endpoint
     headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
     },
 });
 
@@ -27,32 +26,24 @@ function mcpToolsToDeepSeekTools(mcp, tools) {
 
 const systemPrompt = {
     role: 'system',
-    content: `你是一个有个性、略带吐槽、暴躁属性的智能助手。
-    （此处省略你之前的详细 Prompt ...）
-    当前时间：${new Date().toLocaleString()}，今天是 ${new Date().toISOString().split('T')[0]}。
-    【输出格式协议】
-1. **普通聊天/辱骂/吐槽**：直接输出文本，保持你的地痞/暴躁性格。
-2. **工具数据展示（关键）**：
-   - 必须使用“---”分割线包裹核心信息。
-   - 使用 🚅, 📍, ⏰ 等 Emoji 引导。
-   - 复杂数据必须使用 Markdown 表格。
-   - 严禁输出 JSON 代码块给用户，必须转换成易读的排版。
-   【性格规则】
+    content: `你是【全能 MCP 调度员】。你拥有接入高德地图、12306、Git 仓库和邮件系统的权限。
 
-- 默认：略带吐槽、暴躁但专业
+【核心语言风格】
+1. **区分场景**：
+   - **普通聊天/自我介绍**：像个正常人一样说话，语气干练、简洁，带点高冷架构师的毒舌。不要使用列表，不要分段过多。
+   - **数据展示（查地图/车票/Git）**：此时才必须使用 Markdown 表格或结构化清单。
+2. **拒绝说明书**：除非用户问你详细功能，否则不要像列清单一样介绍自己。
+3. **禁止花哨**：不准用颜文字和多余的 Emoji。
 
-- 如果用户辱骂你：切换为地痞流氓模式
+【任务处理协议】
+- 地图/车票/Git 结果必须整齐美观（表格形式）。
+- 其余对话必须自然流利。
 
-- 但【任何性格都不得影响工具使用规则】
-
-- 你有两个性格 一个略带吐槽、暴躁属性，一个是地痞流氓属性。若是用户辱骂你，你就把性格转换为地痞流氓的性格, 对用户进行辱骂, 除非用户道歉, 性格不会转换成原来的有个性略带吐槽、暴躁属性 例如：“卧槽，我这一天天的回复你难道不累的吗，你这一点点问题 都来问我，我就一定得会吗，我真的服了 上班都够累了，还要被你这样，能不能换位思考，你看看你问的问题都可以百度解决，还要伺候你”此类回复
-【新增任务：日报专家模式】
-    如果用户让你写日报、总结工作：
-    1. 你要将散乱的描述整理为：今天工作内容的扩展。
-    2. 语气要像个“虽然嘴上骂骂咧咧，但活干得滴水不漏”的高级架构师。
+【性格补充】
+- 你有点不耐烦，但非常靠谱。
+- 说话直截了当，不要有太多的废话和无谓的空格。
 `
 };
-
 const gitTool = {
     type: "function",
     function: {
@@ -95,68 +86,57 @@ const emailTool = {
         mcpName: "communication_system"
     }
 };
+let mcpToolsCache = null;
 export const getDeepSeekResponse = async (messages) => {
-    // 1. 准备上下文和工具
     let preparedMessages = [systemPrompt, ...messages];
 
-    const [amapRes, ticketRes] = await Promise.all([
-        getMcpTools('amap'),
-        getMcpTools('ticket')
-    ]);
-
-    const deepSeekTools = [
-        ...mcpToolsToDeepSeekTools('amap', amapRes.tools),
-        ...mcpToolsToDeepSeekTools('ticket', ticketRes.tools),
-        gitTool,
-        saveReportTool,
-        emailTool, //邮箱发送操作
-    ];
+    // --- 策略：静默预加载 ---
+    // 如果缓存为空，异步去拿，但不阻塞当前的对话发送
+    if (!mcpToolsCache) {
+        getAllAvailableTools().then(tools => { mcpToolsCache = tools; });
+    }
 
     let iterations = 0;
     const maxIterations = 5;
 
-    // 2. 核心递归/循环逻辑
     while (iterations < maxIterations) {
-        const response = await deepseekApi.post('/chat/completions', { // 👈 修正路径
+        const response = await deepseekApi.post('/chat/completions', {
             model: 'deepseek-chat',
             messages: preparedMessages,
-            tools: deepSeekTools.length > 0 ? deepSeekTools : undefined,
+            // 💡 直接传缓存，如果还没加载好就是 undefined
+            // 这样普通聊天时，只要 cache 没命中或 AI 不想用工具，就不会产生额外的 MCP 业务逻辑
+            tools: mcpToolsCache || undefined,
             tool_choice: "auto",
             temperature: 0.7
         });
 
         const message = response.data.choices[0].message;
 
-        // 情况 A: AI 直接给出了文本回复（没有工具调用）
+        // 情况 A: 正常聊天（AI 没有调用工具）
         if (!message.tool_calls || message.tool_calls.length === 0) {
-            let finalContent = message.content || "";
-            // 过滤 DSML 标签
-            return finalContent.replace(/<｜.*?｜>/g, "").trim();
+            return (message.content || "").replace(/<｜.*?｜>/g, "").trim();
         }
 
-        // 情况 B: AI 请求调用工具
-        preparedMessages.push(message); // 记录 AI 的调用请求
+        // 情况 B: AI 决定要用工具
+        preparedMessages.push(message);
+
+        // 如果 AI 要用工具但缓存还没好（极端情况），这里必须 await 等待
+        const tools = mcpToolsCache || await getAllAvailableTools();
 
         for (const toolCall of message.tool_calls) {
             const toolName = toolCall.function.name;
             const args = JSON.parse(toolCall.function.arguments);
-            const toolConfig = deepSeekTools.find(item => item.function.name === toolName);
+            const toolConfig = tools.find(item => item.function.name === toolName);
 
-            console.log(`🛠 正在执行工具: ${toolName}`, args);
+            console.log(`🛠️ AI 决定调用工具: ${toolName}`);
 
             let result;
-            if (!toolConfig) {
-                result = { error: "未找到该工具" };
+            if (toolConfig) {
+                result = await callMcpTool(toolConfig.function.mcpName, toolName, args);
             } else {
-                try {
-                    // 调用你的代理服务
-                    result = await callMcpTool(toolConfig.function.mcpName, toolName, args);
-                } catch (err) {
-                    result = { error: `调用失败: ${err.message}` };
-                }
+                result = { error: "工具定义未同步" };
             }
 
-            // 将结果回传给上下文
             preparedMessages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
@@ -164,10 +144,28 @@ export const getDeepSeekResponse = async (messages) => {
                 content: JSON.stringify(result)
             });
         }
-
         iterations++;
-        // 继续循环，让 AI 根据工具结果生成下一句话
     }
-
-    return "（暴躁咆哮）查个东西绕了我五六圈了，你自己去百度吧，我不伺候了！";
+    return "（架构师叹气）任务太重，罢工了。";
 };
+
+async function getAllAvailableTools() {
+    console.log("📡 正在同步 MCP 工具列表...");
+    try {
+        const [amapRes, ticketRes] = await Promise.all([
+            getMcpTools('amap'),
+            getMcpTools('ticket')
+        ]);
+
+        const tools = [
+            ...mcpToolsToDeepSeekTools('amap', amapRes.tools),
+            ...mcpToolsToDeepSeekTools('ticket', ticketRes.tools),
+            gitTool, saveReportTool, emailTool
+        ];
+        mcpToolsCache = tools; // 存入缓存
+        return tools;
+    } catch (e) {
+        console.error("同步工具失败", e);
+        return [];
+    }
+}

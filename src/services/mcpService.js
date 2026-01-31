@@ -1,7 +1,5 @@
 import axios from 'axios';
-
-// MCP代理服务地址
-const MCP_PROXY_URL = import.meta.env.VITE_MCP_PROXY_URL || 'http://localhost:3334';
+import { MCP_PROXY_URL } from '../config';
 
 const mcpApi = axios.create({
     baseURL: MCP_PROXY_URL,

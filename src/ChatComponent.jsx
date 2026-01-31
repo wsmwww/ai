@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getDeepSeekResponse } from './services/deepseekService';
 import { io } from 'socket.io-client';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
   const style = document.createElement('style');
@@ -20,6 +22,25 @@ if (!document.getElementById('chat-component-styles')) {
       -moz-osx-font-smoothing: grayscale;
       overflow: hidden;
     }
+      .markdown-container table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 14px;
+}
+.markdown-container th, .markdown-container td {
+  border: 1px solid #e0e0e0;
+  padding: 10px;
+  text-align: left;
+}
+.markdown-container th {
+  background-color: #f7f9fc;
+  font-weight: 600;
+  color: #333;
+}
+.markdown-container tr:nth-child(even) {
+  background-color: #fafafa;
+}
   `;
   document.head.appendChild(style);
 }
@@ -353,7 +374,8 @@ const ChatComponent = () => {
             key={index}
             style={{
               alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: message.role === 'user' ? '70%' : '35%',
+              // 💡 重点修改：助手的宽度调大到 80%，否则表格显示不下
+              maxWidth: message.role === 'user' ? '70%' : '80%',
               display: 'flex',
               flexDirection: 'column',
               gap: '6px',
@@ -376,18 +398,27 @@ const ChatComponent = () => {
                 borderRadius: message.role === 'user'
                   ? '20px 20px 6px 20px'
                   : '20px 20px 20px 6px',
-                backgroundColor: message.role === 'user'
-                  ? '#3498db'
-                  : '#ffffff',
+                backgroundColor: message.role === 'user' ? '#3498db' : '#ffffff',
                 color: message.role === 'user' ? '#ffffff' : '#212529',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
                 border: message.role === 'assistant' ? '1px solid #e9ecef' : 'none',
                 lineHeight: '1.6',
+                // 💡 重点修改：增加溢出滚动，防止表格撑破布局
+                overflowX: 'auto',
               }}
             >
-              <p style={{ margin: 0, wordBreak: 'break-word', fontSize: '15px' }}>
-                {message.content}
-              </p>
+              {/* 💡 重点修改：使用 ReactMarkdown 渲染助手的消息 */}
+              {message.role === 'user' ? (
+                <p style={{ margin: 0, wordBreak: 'break-word', fontSize: '15px' }}>
+                  {message.content}
+                </p>
+              ) : (
+                <div className="markdown-container" style={{ fontSize: '15px' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           </div>
         ))}
