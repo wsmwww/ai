@@ -56,13 +56,13 @@ const MCP_CONFIGS = {
         name: "amap-maps",
         version: "1.0.0",
         url: process.env.VITE_AMAP_MCP_URL,
-        apiKey: process.env.VITE_AMAP_MCP_API_KEY
+        apiKey: process.env.VITE_MCP_API_KEY
     },
     ticket: {
         name: "12306-train",
         version: "1.0.0",
         url: process.env.VITE_TICKET_MCP_URL,
-        apiKey: process.env.VITE_TICKET_MCP_API_KEY
+        apiKey: process.env.VITE_MCP_API_KEY
     },
 };
 
