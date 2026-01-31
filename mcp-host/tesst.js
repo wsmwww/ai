@@ -3,10 +3,14 @@ import express from 'express';
 import cors from 'cors';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import dotenv from 'dotenv';
+
+// 加载环境变量
+dotenv.config();
+
 const app = express();
 app.use(cors());
 app.use(express.json());
-import nodemailer from 'nodemailer';
 import cron from 'node-cron';
 import { runCronReport } from './cronAgent.js';
 import { sendMailInternal, localToolsLogic } from './mcpLogic.js';
@@ -46,19 +50,19 @@ io.on("connection", (socket) => {
     });
 });
 
-// 魔塔MCP配置（从您提供的JSON配置中获取）
+// 魔塔MCP配置（从环境变量中读取）
 const MCP_CONFIGS = {
     amap: {
         name: "amap-maps",
         version: "1.0.0",
-        url: "https://mcp.api-inference.modelscope.net/bdb83cf1fd8e4b/mcp",
-        apiKey: "ms-726c3eb4-4fa0-44ad-83b7-4b35d5e5f92b"
+        url: process.env.VITE_AMAP_MCP_URL,
+        apiKey: process.env.VITE_AMAP_MCP_API_KEY
     },
     ticket: {
         name: "12306-train",
         version: "1.0.0",
-        url: "https://mcp.api-inference.modelscope.net/9cc7bb47810244/mcp",
-        apiKey: "ms-726c3eb4-4fa0-44ad-83b7-4b35d5e5f92b"
+        url: process.env.VITE_TICKET_MCP_URL,
+        apiKey: process.env.VITE_TICKET_MCP_API_KEY
     },
 };
 

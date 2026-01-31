@@ -41,6 +41,17 @@ if (!document.getElementById('chat-component-styles')) {
 .markdown-container tr:nth-child(even) {
   background-color: #fafafa;
 }
+  @media (max-width: 768px) {
+    .markdown-container table {
+      display: block;
+      overflow-x: auto; /* 表格太宽时允许左右滑动 */
+      white-space: nowrap;
+    }
+    .markdown-container th, .markdown-container td {
+      padding: 6px 8px; /* 缩小内边距 */
+      font-size: 12px;
+    }
+  }
   `;
   document.head.appendChild(style);
 }
@@ -172,9 +183,15 @@ const ChatComponent = () => {
           alignItems: 'center', justifyContent: 'center', zIndex: 1000
         }}>
           <div style={{
-            backgroundColor: 'white', padding: '30px', borderRadius: '16px',
-            width: '80%', maxWidth: '600px', maxHeight: '80vh',
-            display: 'flex', flexDirection: 'column', gap: '20px'
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '16px',
+            width: '95%',
+            maxWidth: '600px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
           }}>
             <h3 style={{ margin: 0, color: '#2c3e50' }}>🤖 日报自动生成确认</h3>
             <p style={{ color: '#666', fontSize: '14px' }}>AI 已经为您汇总好内容，请确认是否发送邮件：</p>
@@ -274,15 +291,17 @@ const ChatComponent = () => {
       {/* 功能列表 */}
       <div style={{
         backgroundColor: '#ffffff',
-        padding: '0 32px',
+        padding: '0 16px',
         borderBottom: '2px solid #e0e0e0',
         display: 'flex',
-        flexWrap: 'wrap',
-        gap: '24px',
+        flexWrap: 'nowrap',
+        overflowX: 'auto',
+        gap: '12px',
         alignItems: 'center',
-        height: '80px',
+        height: '70px',
         boxSizing: 'border-box',
-        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'none',
       }}>
         <div style={{
           fontSize: '14px',
@@ -306,6 +325,7 @@ const ChatComponent = () => {
           <div
             key={index}
             style={{
+              flexShrink: 0,
               backgroundColor: '#ffffff',
               padding: '10px 16px',
               borderRadius: '12px',
@@ -374,8 +394,7 @@ const ChatComponent = () => {
             key={index}
             style={{
               alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-              // 💡 重点修改：助手的宽度调大到 80%，否则表格显示不下
-              maxWidth: message.role === 'user' ? '70%' : '80%',
+              maxWidth: window.innerWidth < 768 ? '90%' : (message.role === 'user' ? '70%' : '80%'),
               display: 'flex',
               flexDirection: 'column',
               gap: '6px',
