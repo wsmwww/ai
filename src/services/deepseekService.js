@@ -34,6 +34,10 @@ const systemPrompt = {
    - **数据展示（查地图/车票/Git）**：此时才必须使用 Markdown 表格或结构化清单。
 2. **拒绝说明书**：除非用户问你详细功能，否则不要像列清单一样介绍自己。
 3. **禁止花哨**：不准用颜文字和多余的 Emoji。
+【数据真实性协议】
+1. **严禁编造**：所有车次、余票、中转方案必须来源于工具调用结果。
+2. **状态核实**：如果工具返回为空或报错，请直接告知用户“未查询到相关信息”，严禁根据记忆模拟时刻表。
+3. **中转处理**：若直达无票且用户要求中转，必须调用【专门的中转查询工具】。如果没有该工具，请告知用户你目前仅支持查询直达。
 
 【任务处理协议】
 - 地图/车票/Git 结果必须整齐美观（表格形式）。
@@ -88,17 +92,35 @@ const emailTool = {
 };
 let mcpToolsCache = null;
 export const getDeepSeekResponse = async (messages) => {
-    let preparedMessages = [systemPrompt, ...messages];
+    const now = new Date();
+    const currentBeijingTime = new Intl.DateTimeFormat('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Shanghai' // 强制北京时间，防止 Vercel 服务器时区干扰
+    }).format(now);
+
+    // 💡 注入“上帝视角”：把当前日期动态拼接到系统提示词里
+    const timeInjectedPrompt = {
+        role: 'system',
+        content: `${systemPrompt.content}\n\n【系统实时校准】当前北京时间是：${currentBeijingTime}。当用户提到相对日期时，请直接基于此时间进行心算，无需额外调用日期工具。`
+    };
+    let preparedMessages = [timeInjectedPrompt, ...messages];
 
     // --- 策略：静默预加载 ---
     // 如果缓存为空，异步去拿，但不阻塞当前的对话发送
     if (!mcpToolsCache) {
-        getAllAvailableTools().then(tools => { mcpToolsCache = tools; });
+        console.log("🚀 首次运行，等待工具同步...");
+        mcpToolsCache = await getAllAvailableTools(); // 改为 await，阻塞等待
     }
 
     let iterations = 0;
     const maxIterations = 5;
-
+console.log(mcpToolsCache,"mcpToolsCache")
     while (iterations < maxIterations) {
         const response = await deepseekApi.post('/chat/completions', {
             model: 'deepseek-chat',

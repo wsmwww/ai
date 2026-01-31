@@ -179,13 +179,6 @@ app.post('/mcp/call', async (req, res) => {
             const result = await localToolsLogic[tool](args);
             return res.json({ success: true, data: result });
         }
-        // 否则调用魔塔 MCP 工具
-        // const result = await callMcpTool(mcp, tool, args || {});
-        // const content = result?.content?.[0];
-        // const data = content?.type === 'json'
-        //     ? content.data
-        //     : content?.text ?? content;
-        // res.json({ success: true, mcp, tool, data, raw: result });
 
         const result = await callMcpTool(mcp, tool, args || {});
         res.json({ success: true, data: result.content[0] });
