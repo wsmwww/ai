@@ -292,8 +292,8 @@ app.post('/chat/save', async (req, res) => {
             lastUpdated: new Date()
         };
 
-        // 3. 压缩策略：如果字数超过 100 字符
-        if (totalChars > 100) {
+        // 3. 压缩策略：如果字数超过 4000 字符
+        if (totalChars > 4000) {
             console.log("📏 对话过长，后端开始执行智能总结...");
             const newSummary = await generateSummary(oldSummary, messages);
             updateData.summary = newSummary;
@@ -313,7 +313,7 @@ app.post('/chat/save', async (req, res) => {
         res.json({
             success: true,
             summary: result.summary, // 把最新摘要传给前端，前端下次发消息要带上
-            isCompressed: totalChars > 100
+            isCompressed: totalChars > 4000
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
