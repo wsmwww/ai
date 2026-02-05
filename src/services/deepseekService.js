@@ -119,8 +119,7 @@ export const getDeepSeekResponse = async (messages) => {
     }
 
     let iterations = 0;
-    const maxIterations = 5;
-console.log(mcpToolsCache,"mcpToolsCache")
+    const maxIterations = 10;
     while (iterations < maxIterations) {
         const response = await deepseekApi.post('/chat/completions', {
             model: 'deepseek-chat',

@@ -4,7 +4,29 @@ import cors from 'cors';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import axios from 'axios';
 
+const deepseekApi = axios.create({
+    baseURL: 'https://api.deepseek.com/v1',
+    timeout: 30000, // 总结任务可能较慢，给 30s
+});
+
+const uri = process.env.MONGODB_URI;
+
+mongoose.connect(uri)
+    .then(() => console.log("🍃 恭喜！你的 Node 服务已成功连接到云端 MongoDB"))
+    .catch(err => console.error("❌ 数据库连接失败:", err));
+
+// 定义一个简单的 Schema 来存聊天记录
+const chatSchema = new mongoose.Schema({
+    sessionId: { type: String, index: true }, // 用于区分不同用户的对话
+    messages: Array, // 直接存 DeepSeek 的消息数组
+    summary: { type: String, default: "" }, // 存储压缩后的记忆
+    lastUpdated: { type: Date, default: Date.now }
+});
+
+const Chat = mongoose.model('Chat', chatSchema);
 // 加载环境变量
 dotenv.config();
 
@@ -106,17 +128,17 @@ async function callMcpTool(mcpKey, toolName, args = {}) {
 
         // 核心逻辑：精准匹配魔塔的 SessionExpired 错误
         const errorStr = JSON.stringify(err) || err.message || '';
-        const isExpired = errorStr.includes('SessionExpired') || 
-                          errorStr.includes('会话已过期') || 
-                          errorStr.includes('expired');
+        const isExpired = errorStr.includes('SessionExpired') ||
+            errorStr.includes('会话已过期') ||
+            errorStr.includes('expired');
 
         if (isExpired) {
             console.warn(`♻️ 检测到魔塔会话过期，正在尝试强制重连 [${mcpKey}]...`);
-            
+
             try {
                 // 1. 强制重新初始化（force = true）
                 await initializeMcpSession(mcpKey, true);
-                
+
                 // 2. 重连后立即重试本次调用
                 console.log(`🚀 重连成功，正在重试工具 [${toolName}]`);
                 return await mcpSessions[mcpKey].client.callTool({
@@ -128,7 +150,7 @@ async function callMcpTool(mcpKey, toolName, args = {}) {
                 throw retryErr;
             }
         }
-        
+
         // 如果不是过期错误，直接抛出
         throw err;
     }
@@ -239,7 +261,133 @@ app.get('/mcp/status', (req, res) => {
         }))
     });
 });
+// 1. 获取历史记录
+app.get('/chat/history/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        let chat = await Chat.findOne({ sessionId });
+        if (!chat) {
+            // 如果没找到，返回空数组
+            return res.json({ success: true, messages: [] });
+        }
+        res.json({ success: true, messages: chat.messages });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+// 2. 更新/保存记录（每次对话完调用）
+app.post('/chat/save', async (req, res) => {
+    try {
+        const { sessionId, messages } = req.body;
 
+        // 1. 获取数据库中已有的记录（主要是拿旧摘要）
+        const doc = await Chat.findOne({ sessionId });
+        const oldSummary = doc?.summary || "";
+
+        // 2. 统计当前字数（判定是否需要压缩）
+        const totalChars = messages.reduce((s, m) => s + (m.content?.length || 0), 0);
+
+        let updateData = {
+            messages: messages,
+            lastUpdated: new Date()
+        };
+
+        // 3. 压缩策略：如果字数超过 4000 字符
+        if (totalChars > 4000) {
+            console.log("📏 对话过长，后端开始执行智能总结...");
+
+            // 调用上面写的总结函数
+            const newSummary = await generateSummary(oldSummary, messages);
+
+            updateData.summary = newSummary;
+            // 关键：为了不让 AI 下次“失忆”，我们保留最后 4 条消息作为直接上下文
+            updateData.messages = messages.slice(-4);
+
+            console.log("✅ 摘要更新完毕，历史已裁切");
+        }
+
+        // 4. 更新数据库
+        const result = await Chat.findOneAndUpdate(
+            { sessionId },
+            updateData,
+            { upsert: true, new: true }
+        );
+
+        res.json({
+            success: true,
+            summary: result.summary, // 把最新摘要传给前端，前端下次发消息要带上
+            isCompressed: totalChars > 4000
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+async function generateSummary(oldSummary, messages) {
+    // 将消息数组转换为纯文本格式，方便 AI 阅读
+    if (!Array.isArray(messages) || messages.length === 0) {
+        console.warn("⚠️ generateSummary 收到无效的消息数组，跳过总结。");
+        return oldSummary || "";
+    }
+    const conversationText = messages
+        .filter(m => m.content) // 过滤掉没有内容的消息
+        .map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`)
+        .join('\n');
+
+    const summaryPrompt = [
+        {
+            role: "system",
+            content: `你是一个记忆管理专家。你的任务是维护用户的【永久档案】。
+        
+        ### 绝对准则（不可丢失）：
+        1. 身份识别：必须永久保留用户的姓名、头衔、昵称。
+        2. 硬性设定：如果用户说“记住我/不能忘记”，必须原样保留在摘要中。
+        3. 状态更新：将【新增对话流】中的关键信息合并到【旧摘要】中。
+        
+        ### 过滤规则：
+        - 仅删除无意义的“哈哈”、“谢谢”、“好的”、“在吗”。
+        - 删除已经完成且不再需要的过时任务步骤。
+
+        ### 格式要求：
+        - 以“用户身份：[姓名/头衔]”开头。
+        - 摘要字数可放宽至 300 字。`
+        },
+        {
+            role: "user",
+            content: `【旧摘要】：${oldSummary || "无"} \n\n 【新增对话流】：\n${conversationText} \n\n 请结合以上内容生成最新的整合摘要：`
+        }
+    ];
+
+    try {
+        const summary = await getAIResponseSimple(summaryPrompt);
+        console.log("✅ 生成摘要:", summary);
+        return summary;
+    } catch (err) {
+        console.error("生成摘要失败，跳过本次压缩:", err);
+        return ""; // 失败时返回空，保证主流程不崩溃
+    }
+}
+// 纯文本 AI 调用
+async function getAIResponseSimple(messages) {
+    try {
+        const response = await deepseekApi.post('/chat/completions', {
+            model: 'deepseek-chat',
+            messages: messages,
+            temperature: 0.3, // 总结不需要太多创意，低随机性更稳定
+        }, {
+            headers: {
+                'Authorization': `Bearer ${process.env.VITE_DEEPSEEK_API_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const content = response.data.choices[0].message.content;
+        // 去除 DeepSeek 偶尔会出现的思考标签
+        return content.replace(/<｜.*?｜>/g, "").trim();
+    } catch (error) {
+        console.error("❌ 后端 AI 调用出错:", error.response?.data || error.message);
+        throw error;
+    }
+}
 // ==================== 启动服务器 ====================
 
 const randomMinute = Math.floor(Math.random() * 60);

@@ -3,6 +3,7 @@ import { getDeepSeekResponse } from './services/deepseekService';
 import { io } from 'socket.io-client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import axios from 'axios';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
   const style = document.createElement('style');
@@ -56,6 +57,7 @@ if (!document.getElementById('chat-component-styles')) {
   document.head.appendChild(style);
 }
 const socket = io('http://localhost:3334');
+const SESSION_ID = "user_001"; // 暂时硬编码，后续可以根据登录用户动态获取
 const ChatComponent = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -63,13 +65,34 @@ const ChatComponent = () => {
   const [error, setError] = useState('');
   const messagesEndRef = useRef(null);
 
+
   // --- 新增状态：控制确认弹窗 ---
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingReport, setPendingReport] = useState("");
+  
+  // --- 新增状态：控制记忆管理模态框 ---
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [memoryContent, setMemoryContent] = useState("");
+  const [isLoadingMemory, setIsLoadingMemory] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+  // 初始化加载记忆
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await axios.get(`http://localhost:3334/chat/history/${SESSION_ID}`);
+        if (res.data.success && res.data.messages) {
+          setMessages(res.data.messages);
+          setSummary(res.data.summary || "");
+        }
+      } catch (err) {
+        console.error("加载历史记录失败:", err);
+      }
+    };
+    loadHistory();
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -105,6 +128,8 @@ const ChatComponent = () => {
     socket.emit("reject_send_daily"); // 告诉后端：不发了，取消
     setShowConfirmModal(false);
   };
+  const [summary, setSummary] = useState("");
+
   const handleSend = async () => {
     if (!input.trim()) return;
 
@@ -114,26 +139,63 @@ const ChatComponent = () => {
       content: input,
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    // 1. 构造发给 AI 的 Payload
+    let payload = [];
+    if (summary) {
+      payload.push({
+        role: 'system',
+        content: `【长期记忆背景】：${summary}`
+      });
+    }
+    const updatedMessagesWithUser = [...messages, userMessage];
+    payload.push(...updatedMessagesWithUser);
+
+    // 立即更新 UI 显示用户消息
+    setMessages(updatedMessagesWithUser);
     setInput('');
     setIsLoading(true);
 
     try {
-      const response = await getDeepSeekResponse([...messages, userMessage]);
+      // 2. 第一步：只等待 AI 的回复
+      const response = await getDeepSeekResponse(payload);
+
       const assistantMessage = {
         role: 'assistant',
         content: response,
       };
-      setMessages(prev => [...prev, assistantMessage]);
+      const finalMessages = [...updatedMessagesWithUser, assistantMessage];
+
+      // --- 【关键改动点 1】：AI 回复一拿到，立刻更新消息列表并关闭转圈 ---
+      setMessages(finalMessages);
+      setIsLoading(false);
+
+      // --- 【关键改动点 2】：静默保存，不再使用 await 阻塞 UI ---
+      // 我们去掉 await，让它在后台运行
+      axios.post('http://localhost:3334/chat/save', {
+        sessionId: SESSION_ID,
+        messages: finalMessages
+      }).then(saveRes => {
+        // 保存成功后，悄悄更新摘要和可能的截断列表
+        if (saveRes.data.success && saveRes.data.summary) {
+          setSummary(saveRes.data.summary);
+          if (saveRes.data.isCompressed) {
+            // 如果触发了压缩，悄悄替换历史记录，用户无感
+            setMessages(saveRes.data.messages || finalMessages.slice(-4));
+          }
+        }
+      }).catch(err => {
+        console.error('后台保存失败，但对话不受影响:', err);
+      });
+
     } catch (error) {
       console.error('Error in handleSend:', error);
-      setError('Failed to get response from DeepSeek API. Please check console for details.');
+      setError('Failed to get response from DeepSeek API.');
       const errorMessage = {
         role: 'assistant',
-        content: 'Sorry, there was an error processing your request. Please try again later.',
+        content: 'Sorry, there was an error processing your request.',
       };
       setMessages(prev => [...prev, errorMessage]);
-    } finally {
+      // 报错也要关闭加载状态
       setIsLoading(false);
     }
   };
@@ -141,6 +203,42 @@ const ChatComponent = () => {
   // 处理功能点击，自动输入到输入框
   const handleFeatureClick = (example) => {
     setInput(example);
+  };
+
+  // --- 记忆管理功能 ---  
+  // 打开记忆管理模态框
+  const handleOpenMemoryModal = async () => {
+    setIsLoadingMemory(true);
+    try {
+      // 加载AI记忆
+      const res = await axios.get(`http://localhost:3334/chat/history/${SESSION_ID}`);
+      if (res.data.success) {
+        setMemoryContent(res.data.summary || "暂无记忆");
+      }
+    } catch (err) {
+      console.error("加载记忆失败:", err);
+      setMemoryContent("加载记忆失败");
+    } finally {
+      setIsLoadingMemory(false);
+      setShowMemoryModal(true);
+    }
+  };
+
+  // 清空AI记忆
+  const handleClearMemory = async () => {
+    if (window.confirm("确定要清空AI记忆吗？此操作不可恢复。")) {
+      try {
+        const res = await axios.post(`http://localhost:3334/chat/clear/${SESSION_ID}`);
+        if (res.data.success) {
+          setMemoryContent("记忆已清空");
+          setSummary("");
+          alert("AI记忆已成功清空");
+        }
+      } catch (err) {
+        console.error("清空记忆失败:", err);
+        alert("清空记忆失败，请稍后重试");
+      }
+    }
   };
 
   // 可用功能列表
@@ -227,6 +325,101 @@ const ChatComponent = () => {
           </div>
         </div>
       )}
+      
+      {/* 记忆管理模态框 */}
+      {showMemoryModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '24px',
+            borderRadius: '16px',
+            width: '95%',
+            maxWidth: '800px',
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>🧠 AI 记忆管理</h3>
+              <button
+                onClick={() => setShowMemoryModal(false)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #ddd',
+                  cursor: 'pointer',
+                  backgroundColor: '#f8f9fa',
+                  fontSize: '14px'
+                }}
+              >
+                关闭
+              </button>
+            </div>
+            
+            <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
+              这里显示AI对当前会话的记忆摘要，您可以查看或清空这些记忆。
+            </p>
+
+            <div style={{
+              flex: 1, overflowY: 'auto', backgroundColor: '#f8f9fa',
+              padding: '20px', borderRadius: '12px', border: '1px solid #ddd',
+              whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+            }}>
+              {isLoadingMemory ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    border: '2px solid #3498db',
+                    borderTop: '2px solid transparent',
+                    animation: 'spin 1s linear infinite',
+                  }} />
+                </div>
+              ) : (
+                memoryContent || "暂无记忆内容"
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                onClick={() => setShowMemoryModal(false)}
+                style={{
+                  padding: '10px 20px', borderRadius: '8px', border: '1px solid #ddd',
+                  cursor: 'pointer', backgroundColor: '#f8f9fa', fontSize: '14px'
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleClearMemory}
+                style={{
+                  padding: '10px 20px', borderRadius: '8px', border: 'none',
+                  cursor: 'pointer', backgroundColor: '#e74c3c', color: 'white', 
+                  fontSize: '14px', fontWeight: '500',
+                  transition: 'all 0.2s ease-in-out'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#c0392b';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e74c3c';
+                }}
+              >
+                清空记忆
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <div style={{
         backgroundColor: '#1a2530',
         padding: '0 32px',
@@ -284,6 +477,29 @@ const ChatComponent = () => {
             }}>
               专业版
             </div>
+            <button
+              onClick={handleOpenMemoryModal}
+              style={{
+                fontSize: '12px',
+                padding: '6px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(52, 152, 219, 1)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(52, 152, 219, 0.8)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              记忆管理
+            </button>
           </div>
         </div>
       </div>
