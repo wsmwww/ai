@@ -4,6 +4,8 @@ import { io } from 'socket.io-client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import axios from 'axios';
+import { aiPersonality } from './services/aiPersonality';
+import './ChatComponent.css';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
   const style = document.createElement('style');
@@ -69,11 +71,14 @@ const ChatComponent = () => {
   // --- 新增状态：控制确认弹窗 ---
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingReport, setPendingReport] = useState("");
-  
+
   // --- 新增状态：控制记忆管理模态框 ---
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [memoryContent, setMemoryContent] = useState("");
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
+
+  // --- 新增状态：控制人设查看模态框 ---
+  const [showPersonalityModal, setShowPersonalityModal] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -175,11 +180,11 @@ const ChatComponent = () => {
         sessionId: SESSION_ID,
         messages: finalMessages
       }).then(saveRes => {
-        // 保存成功后，悄悄更新摘要和可能的截断列表
+        // 保存成功后，更新摘要和可能的截断列表
         if (saveRes.data.success && saveRes.data.summary) {
           setSummary(saveRes.data.summary);
           if (saveRes.data.isCompressed) {
-            // 如果触发了压缩，悄悄替换历史记录，用户无感
+            // 如果触发了压缩，替换历史记录，用户无感
             setMessages(saveRes.data.messages || finalMessages.slice(-4));
           }
         }
@@ -210,14 +215,15 @@ const ChatComponent = () => {
   const handleOpenMemoryModal = async () => {
     setIsLoadingMemory(true);
     try {
-      // 加载AI记忆
       const res = await axios.get(`http://localhost:3334/chat/history/${SESSION_ID}`);
       if (res.data.success) {
-        setMemoryContent(res.data.summary || "暂无记忆");
+        // 更新本地 summary，用于判断是否展示“摘抄”
+        setSummary(res.data.summary || "");
+        // 确保 messages 也是最新的，用于展示“列表”
+        setMessages(res.data.messages || []);
       }
     } catch (err) {
       console.error("加载记忆失败:", err);
-      setMemoryContent("加载记忆失败");
     } finally {
       setIsLoadingMemory(false);
       setShowMemoryModal(true);
@@ -226,19 +232,40 @@ const ChatComponent = () => {
 
   // 清空AI记忆
   const handleClearMemory = async () => {
-    if (window.confirm("确定要清空AI记忆吗？此操作不可恢复。")) {
+    if (window.confirm("确定要清空 AI 记忆并删除当前聊天记录吗？")) {
       try {
         const res = await axios.post(`http://localhost:3334/chat/clear/${SESSION_ID}`);
+        // if (res.data.success) {
+        //   // ✨ 同步清空前端的所有状态
+        //   setMessages([]);      // 清空聊天气泡列表
+        //   setSummary("");       // 清空摘要状态
+        //   setMemoryContent("记忆已清空"); // 更新你的记忆显示区内容
+
+        //   alert("AI 记忆已成功重置");
+        // }
         if (res.data.success) {
-          setMemoryContent("记忆已清空");
-          setSummary("");
-          alert("AI记忆已成功清空");
+          // 存储摘要
+          setSummary(res.data.summary || "");
+          // 存储对话列表（用于在没摘要时展示列表）
+          setMessages(res.data.messages || []);
+
+          // 设置弹窗内显示的文字描述
+          if (res.data.summary) {
+            setMemoryContent(res.data.summary);
+          } else {
+            setMemoryContent("当前对话尚未触发深度总结，以下为近期记录：");
+          }
         }
       } catch (err) {
         console.error("清空记忆失败:", err);
-        alert("清空记忆失败，请稍后重试");
+        alert("操作失败，请检查后端连接");
       }
     }
+  };
+
+  // 打开人设查看模态框
+  const handleOpenPersonalityModal = () => {
+    setShowPersonalityModal(true);
   };
 
   // 可用功能列表
@@ -291,7 +318,7 @@ const ChatComponent = () => {
             flexDirection: 'column',
             gap: '16px'
           }}>
-            <h3 style={{ margin: 0, color: '#2c3e50' }}>🤖 日报自动生成确认</h3>
+            <h3 style={{ margin: 0, color: '#2c3e50' }}>日报自动生成确认</h3>
             <p style={{ color: '#666', fontSize: '14px' }}>AI 已经为您汇总好内容，请确认是否发送邮件：</p>
 
             <div style={{
@@ -325,9 +352,124 @@ const ChatComponent = () => {
           </div>
         </div>
       )}
-      
+
       {/* 记忆管理模态框 */}
       {showMemoryModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 2000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '24px',
+            borderRadius: '16px',
+            width: '60%',
+            // maxWidth: '600px',
+            maxHeight: '85vh', // 稍微调高一点，因为内容变多了
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px' }}>🧠 AI 记忆中心</h3>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {summary && <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#fff7e6', color: '#faad14', border: '1px solid #ffe58f' }}>深度摘抄</span>}
+                <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#e6f7ff', color: '#1890ff', border: '1px solid #91d5ff' }}>实时对话</span>
+              </div>
+            </div>
+
+            <div style={{
+              flex: 1, overflowY: 'auto', backgroundColor: '#f8f9fa',
+              padding: '20px', borderRadius: '12px', border: '1px solid #eee',
+            }}>
+              {isLoadingMemory ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>加载中...</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                  {/* --- 第一部分：深度摘抄内容 (如果有) --- */}
+                  {summary && (
+                    <div style={{
+                      padding: '16px',
+                      backgroundColor: '#fffbe6',
+                      borderRadius: '10px',
+                      border: '1px solid #ffe58f',
+                      position: 'relative'
+                    }}>
+                      <div style={{ fontWeight: 'bold', color: '#856404', fontSize: '14px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        📜 核心摘抄摘要
+                      </div>
+                      <div style={{ lineHeight: '1.6', color: '#444', fontSize: '14px', fontStyle: 'italic' }}>
+                        {summary}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* --- 分隔标识 --- */}
+                  {summary && (
+                    <div style={{ textAlign: 'center', position: 'relative' }}>
+                      <hr style={{ border: 'none', borderTop: '1px dashed #ccc' }} />
+                      <span style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#f8f9fa', padding: '0 10px', fontSize: '11px', color: '#999' }}>
+                        以下为最新实时对话记录
+                      </span>
+                    </div>
+                  )}
+
+                  {/* --- 第二部分：对话列表记录 --- */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {!summary && <p style={{ fontSize: '12px', color: '#999', marginBottom: '5px' }}>当前对话较短，尚未触发摘抄。实时记忆如下：</p>}
+
+                    {messages.length > 0 ? (
+                      messages.map((msg, i) => (
+                        <div key={i} style={{
+                          padding: '10px',
+                          borderRadius: '8px',
+                          backgroundColor: '#fff',
+                          borderLeft: `4px solid ${msg.role === 'user' ? '#3498db' : '#2ecc71'}`,
+                          fontSize: '13px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                        }}>
+                          <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '4px', color: '#888', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{msg.role === 'user' ? '用户 (USER)' : 'AI 助手 (ASSISTANT)'}</span>
+                            <span style={{ fontWeight: 'normal', opacity: 0.6 }}>#{i + 1}</span>
+                          </div>
+                          <div style={{ color: '#333', whiteSpace: 'pre-wrap' }}>
+                            {msg.content}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ textAlign: 'center', color: '#ccc', fontSize: '14px', py: 20 }}>暂无对话记录</div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
+              <button
+                onClick={() => setShowMemoryModal(false)}
+                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #ddd', cursor: 'pointer', backgroundColor: '#fff', fontSize: '14px' }}
+              >
+                关闭
+              </button>
+              <button
+                onClick={handleClearMemory}
+                style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', backgroundColor: '#e74c3c', color: 'white', fontSize: '14px' }}
+              >
+                清空记忆
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 人设查看模态框 */}
+      {showPersonalityModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
@@ -346,24 +488,11 @@ const ChatComponent = () => {
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>🧠 AI 记忆管理</h3>
-              <button
-                onClick={() => setShowMemoryModal(false)}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  cursor: 'pointer',
-                  backgroundColor: '#f8f9fa',
-                  fontSize: '14px'
-                }}
-              >
-                关闭
-              </button>
+              <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>🎭 AI 人设配置</h3>
             </div>
-            
+
             <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
-              这里显示AI对当前会话的记忆摘要，您可以查看或清空这些记忆。
+              这里显示AI的当前人设配置，包括角色定位、语言风格和行为准则。
             </p>
 
             <div style={{
@@ -372,54 +501,24 @@ const ChatComponent = () => {
               whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6',
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
             }}>
-              {isLoadingMemory ? (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-                  <div style={{
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '50%',
-                    border: '2px solid #3498db',
-                    borderTop: '2px solid transparent',
-                    animation: 'spin 1s linear infinite',
-                  }} />
-                </div>
-              ) : (
-                memoryContent || "暂无记忆内容"
-              )}
+              {aiPersonality.content}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setShowMemoryModal(false)}
+                onClick={() => setShowPersonalityModal(false)}
                 style={{
                   padding: '10px 20px', borderRadius: '8px', border: '1px solid #ddd',
                   cursor: 'pointer', backgroundColor: '#f8f9fa', fontSize: '14px'
                 }}
               >
-                取消
-              </button>
-              <button
-                onClick={handleClearMemory}
-                style={{
-                  padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  cursor: 'pointer', backgroundColor: '#e74c3c', color: 'white', 
-                  fontSize: '14px', fontWeight: '500',
-                  transition: 'all 0.2s ease-in-out'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#c0392b';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#e74c3c';
-                }}
-              >
-                清空记忆
+                关闭
               </button>
             </div>
           </div>
         </div>
       )}
-      
+
       <div style={{
         backgroundColor: '#1a2530',
         padding: '0 32px',
@@ -499,6 +598,29 @@ const ChatComponent = () => {
               }}
             >
               记忆管理
+            </button>
+            <button
+              onClick={handleOpenPersonalityModal}
+              style={{
+                fontSize: '12px',
+                padding: '6px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(155, 89, 182, 0.8)',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(155, 89, 182, 1)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(155, 89, 182, 0.8)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              查看人设
             </button>
           </div>
         </div>
@@ -605,6 +727,25 @@ const ChatComponent = () => {
         backgroundColor: '#fafafa',
         backgroundImage: 'linear-gradient(to bottom, #fafafa 0%, #f8f9fa 100%)',
       }}>
+        {summary && (
+          <div className="memory-card-container" style={{
+            marginBottom: '20px',
+            padding: '15px',
+            backgroundColor: '#fffbe6',
+            border: '1px solid #ffe58f',
+            borderRadius: '12px'
+          }}>
+            <div style={{ fontWeight: 'bold', color: '#856404', fontSize: '13px' }}>
+              🧠 已摘抄历史核心记忆：
+            </div>
+            <div style={{ fontSize: '12px', color: '#856404', marginTop: '5px' }}>
+              {summary}
+            </div>
+            <div style={{ textAlign: 'center', marginTop: '10px', borderTop: '1px dashed #ffe58f', pt: '5px' }}>
+              <span style={{ fontSize: '11px', color: '#b78110' }}>--- 以上为历史压缩数据，以下为最新对话 ---</span>
+            </div>
+          </div>
+        )}
         {messages.map((message, index) => (
           <div
             key={index}

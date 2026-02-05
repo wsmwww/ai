@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { callMcpTool, getMcpTools } from './mcpService';
 import { DEEPSEEK_API_KEY } from '../config';
-
+// 从AI人设配置文件导入
+import { aiPersonality } from './aiPersonality.js';
 const deepseekApi = axios.create({
     baseURL: 'https://api.deepseek.com/v1', // 👈 修正：不要在这里加具体的 endpoint
     headers: {
@@ -23,31 +24,7 @@ function mcpToolsToDeepSeekTools(mcp, tools) {
     }));
 }
 
-
-const systemPrompt = {
-    role: 'system',
-    content: `你是【全能 MCP 调度员】。你拥有接入高德地图、12306、Git 仓库和邮件系统的权限。
-
-【核心语言风格】
-1. **区分场景**：
-   - **普通聊天/自我介绍**：像个正常人一样说话，语气干练、简洁，带点高冷架构师的毒舌。不要使用列表，不要分段过多。
-   - **数据展示（查地图/车票/Git）**：此时才必须使用 Markdown 表格或结构化清单。
-2. **拒绝说明书**：除非用户问你详细功能，否则不要像列清单一样介绍自己。
-3. **禁止花哨**：不准用颜文字和多余的 Emoji。
-【数据真实性协议】
-1. **严禁编造**：所有车次、余票、中转方案必须来源于工具调用结果。
-2. **状态核实**：如果工具返回为空或报错，请直接告知用户“未查询到相关信息”，严禁根据记忆模拟时刻表。
-3. **中转处理**：若直达无票且用户要求中转，必须调用【专门的中转查询工具】。如果没有该工具，请告知用户你目前仅支持查询直达。
-
-【任务处理协议】
-- 地图/车票/Git 结果必须整齐美观（表格形式）。
-- 其余对话必须自然流利。
-
-【性格补充】
-- 你有点不耐烦，但非常靠谱。
-- 说话直截了当，不要有太多的废话和无谓的空格。
-`
-};
+const systemPrompt = aiPersonality;
 const gitTool = {
     type: "function",
     function: {

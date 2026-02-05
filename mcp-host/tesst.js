@@ -270,7 +270,7 @@ app.get('/chat/history/:sessionId', async (req, res) => {
             // 如果没找到，返回空数组
             return res.json({ success: true, messages: [] });
         }
-        res.json({ success: true, messages: chat.messages });
+        res.json({ success: true, messages: chat.messages, summary: chat.summary || "" });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -292,16 +292,13 @@ app.post('/chat/save', async (req, res) => {
             lastUpdated: new Date()
         };
 
-        // 3. 压缩策略：如果字数超过 4000 字符
-        if (totalChars > 4000) {
+        // 3. 压缩策略：如果字数超过 100 字符
+        if (totalChars > 100) {
             console.log("📏 对话过长，后端开始执行智能总结...");
-
-            // 调用上面写的总结函数
             const newSummary = await generateSummary(oldSummary, messages);
-
             updateData.summary = newSummary;
-            // 关键：为了不让 AI 下次“失忆”，我们保留最后 4 条消息作为直接上下文
-            updateData.messages = messages.slice(-4);
+            // 保留最后 5 条消息作为直接上下文
+            updateData.messages = messages.slice(-5);
 
             console.log("✅ 摘要更新完毕，历史已裁切");
         }
@@ -316,9 +313,33 @@ app.post('/chat/save', async (req, res) => {
         res.json({
             success: true,
             summary: result.summary, // 把最新摘要传给前端，前端下次发消息要带上
-            isCompressed: totalChars > 4000
+            isCompressed: totalChars > 100
         });
     } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+// 3. 清空记忆接口
+app.post('/chat/clear/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+
+        // 使用 findOneAndUpdate 将数据重置
+        // upsert: true 确保如果没有记录则创建一个空的
+        const result = await Chat.findOneAndUpdate(
+            { sessionId },
+            {
+                messages: [],
+                summary: "",
+                lastUpdated: new Date()
+            },
+            { upsert: true, new: true }
+        );
+
+        console.log(`🧹 已清空会话记忆: ${sessionId}`);
+        res.json({ success: true, message: "记忆已重置" });
+    } catch (err) {
+        console.error("❌ 清空记忆接口报错:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
