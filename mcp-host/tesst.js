@@ -43,7 +43,7 @@ import http from "http";
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*" } // 允许你的 React 前端连接
+    cors: { origin: "*" } // React 前端连接
 });
 const PORT = process.env.PORT || 3334;
 
@@ -72,21 +72,8 @@ io.on("connection", (socket) => {
     });
 });
 
-// 魔塔MCP配置（从环境变量中读取）
-const MCP_CONFIGS = {
-    amap: {
-        name: "amap-maps",
-        version: "1.0.0",
-        url: process.env.VITE_AMAP_MCP_URL,
-        apiKey: process.env.VITE_MCP_API_KEY
-    },
-    ticket: {
-        name: "12306-train",
-        version: "1.0.0",
-        url: process.env.VITE_TICKET_MCP_URL,
-        apiKey: process.env.VITE_MCP_API_KEY
-    },
-};
+// 从MCP配置文件导入
+import { MCP_CONFIGS } from './mcpConfig.js';
 
 const mcpSessions = {};
 
@@ -179,7 +166,29 @@ app.post('/mcp/initialize', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
+app.get('/mcp/list-all-tools', async (req, res) => {
+    try {
+        const allTools = [];
+        // 遍历后端配置的所有 MCP
+        for (const mcpKey of Object.keys(MCP_CONFIGS)) {
+            const session = await initializeMcpSession(mcpKey);
+            // 格式化为前端 DeepSeek 需要的格式
+            const formattedTools = session.tools.map(tool => ({
+                type: "function",
+                function: {
+                    name: tool.name,
+                    description: tool.description || '',
+                    parameters: tool.inputSchema || {},
+                    mcpName: mcpKey // 标记归属哪个 MCP
+                }
+            }));
+            allTools.push(...formattedTools);
+        }
+        res.json({ success: true, tools: allTools });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 app.get('/mcp/tools', async (req, res) => {
     const mcp = req.query.mcp || 'amap';
 
@@ -245,8 +254,6 @@ app.post('/mcp/amap', async (req, res) => {
         });
     }
 });
-
-
 
 /**
  * 6. 状态检查端点
