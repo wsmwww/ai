@@ -13,7 +13,7 @@ export const FeaturesModal = ({ isOpen, onClose, features, onFeatureClick }) => 
         </div>
 
         <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
-          点击功能标签可自动输入示例到聊天框
+          点击功能标签可自动输入示例到聊天框 
         </p>
 
         <div style={{ marginTop: '8px' }}>
