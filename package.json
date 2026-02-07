@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "antd": "^6.2.2",
+    "antd": "^6.2.3",
     "axios": "^1.13.2",
     "dotenv": "^17.2.3",
     "mongoose": "^8.22.1",

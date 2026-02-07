@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import axios from 'axios';
 import { aiPersonality } from './services/aiPersonality';
+import { PersonalityModal, AddMcpModal, MemoryModal, FeaturesModal } from './components/ChatModals';
 import './ChatComponent.css';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
@@ -55,6 +56,26 @@ if (!document.getElementById('chat-component-styles')) {
       font-size: 12px;
     }
   }
+  
+  /* 功能按钮样式 */
+  .feature-button {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    background-color: #ffffff;
+    color: #2c3e50;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+  }
+  
+  .feature-button:hover {
+    background-color: #f8f9fa;
+    border-color: #3498db;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  }
   `;
   document.head.appendChild(style);
 }
@@ -79,6 +100,13 @@ const ChatComponent = () => {
 
   // --- 新增状态：控制人设查看模态框 ---
   const [showPersonalityModal, setShowPersonalityModal] = useState(false);
+
+  // --- 新增状态：控制新增MCP模态框 ---
+  const [showAddMcpModal, setShowAddMcpModal] = useState(false);
+  const [mcpJsonContent, setMcpJsonContent] = useState('{}');
+
+  // --- 新增状态：控制功能列表弹窗 ---
+  const [showFeaturesModal, setShowFeaturesModal] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -268,6 +296,32 @@ const ChatComponent = () => {
     setShowPersonalityModal(true);
   };
 
+  // 打开新增MCP模态框
+  const handleOpenAddMcpModal = () => {
+    setMcpJsonContent('{}');
+    setShowAddMcpModal(true);
+  };
+
+  // 打开功能列表弹窗
+  const handleOpenFeaturesModal = () => {
+    setShowFeaturesModal(true);
+  };
+  const handleSaveMcp = async () => {
+    try {
+      const configData = JSON.parse(mcpJsonContent);
+      // 假设 JSON 格式为: { "mcpKey": "weather", "name": "天气服务", "url": "...", "apiKey": "..." }
+console.log(configData,'configData')
+      const res = await axios.post(`http://localhost:3334/mcp/save-config`, configData);
+      if (res.data.success) {
+        alert("配置保存成功！");
+        setShowAddMcpModal(false);
+      }
+    } catch (e) {
+
+      console.error(e,"eeee")
+      alert("保存失败，请检查 JSON 格式或网络",e);
+    }
+  };
   // 可用功能列表
   const availableFeatures = [
     {
@@ -288,306 +342,68 @@ const ChatComponent = () => {
   ];
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      width: '100vw',
-      margin: 0,
-      padding: 0,
-      border: 'none',
-      borderRadius: 0,
-      overflow: 'hidden',
-      backgroundColor: '#ffffff',
-    }}>
-      {/* 顶部导航栏 */}
+    <div className='layout'>
+      {/* 邮箱模态框 */}
       {showConfirmModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '20px',
-            borderRadius: '16px',
-            width: '95%',
-            maxWidth: '600px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px'
-          }}>
-            <h3 style={{ margin: 0, color: '#2c3e50' }}>日报自动生成确认</h3>
-            <p style={{ color: '#666', fontSize: '14px' }}>AI 已经为您汇总好内容，请确认是否发送邮件：</p>
-
-            <div style={{
-              flex: 1, overflowY: 'auto', backgroundColor: '#f8f9fa',
-              padding: '15px', borderRadius: '8px', border: '1px solid #ddd',
-              whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6'
-            }}>
-              {pendingReport}
-            </div>
-
+        <div className="modal-overlay">
+          <div className="modal-card confirm">
+            <h3>日报自动生成确认</h3>
+            <p>AI 已经为您汇总好内容，请确认是否发送邮件：</p>
+            <div className="preview-box">{pendingReport}</div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button
-                onClick={handleReject}
-                style={{
-                  padding: '10px 20px', borderRadius: '8px', border: '1px solid #ddd',
-                  cursor: 'pointer', backgroundColor: '#eee'
-                }}
-              >
-                取消发送
-              </button>
-              <button
-                onClick={handleApprove}
-                style={{
-                  padding: '10px 20px', borderRadius: '8px', border: 'none',
-                  cursor: 'pointer', backgroundColor: '#3498db', color: 'white', fontWeight: 'bold'
-                }}
-              >
-                确认发送邮件
-              </button>
+              <button className="nav-btn" style={{ backgroundColor: '#eee', color: '#333' }} onClick={handleReject}>取消发送</button>
+              <button className="send-btn" onClick={handleApprove}>确认发送邮件</button>
             </div>
           </div>
         </div>
       )}
 
       {/* 记忆管理模态框 */}
-      {showMemoryModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.6)',
-          display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 2000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '24px',
-            borderRadius: '16px',
-            width: '60%',
-            // maxWidth: '600px',
-            maxHeight: '85vh', // 稍微调高一点，因为内容变多了
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px' }}>🧠 AI 记忆中心</h3>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {summary && <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#fff7e6', color: '#faad14', border: '1px solid #ffe58f' }}>深度摘抄</span>}
-                <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px', backgroundColor: '#e6f7ff', color: '#1890ff', border: '1px solid #91d5ff' }}>实时对话</span>
-              </div>
-            </div>
-
-            <div style={{
-              flex: 1, overflowY: 'auto', backgroundColor: '#f8f9fa',
-              padding: '20px', borderRadius: '12px', border: '1px solid #eee',
-            }}>
-              {isLoadingMemory ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>加载中...</div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-                  {/* --- 第一部分：深度摘抄内容 (如果有) --- */}
-                  {summary && (
-                    <div style={{
-                      padding: '16px',
-                      backgroundColor: '#fffbe6',
-                      borderRadius: '10px',
-                      border: '1px solid #ffe58f',
-                      position: 'relative'
-                    }}>
-                      <div style={{ fontWeight: 'bold', color: '#856404', fontSize: '14px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        📜 核心摘抄摘要
-                      </div>
-                      <div style={{ lineHeight: '1.6', color: '#444', fontSize: '14px', fontStyle: 'italic' }}>
-                        {summary}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* --- 分隔标识 --- */}
-                  {summary && (
-                    <div style={{ textAlign: 'center', position: 'relative' }}>
-                      <hr style={{ border: 'none', borderTop: '1px dashed #ccc' }} />
-                      <span style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#f8f9fa', padding: '0 10px', fontSize: '11px', color: '#999' }}>
-                        以下为最新实时对话记录
-                      </span>
-                    </div>
-                  )}
-
-                  {/* --- 第二部分：对话列表记录 --- */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {!summary && <p style={{ fontSize: '12px', color: '#999', marginBottom: '5px' }}>当前对话较短，尚未触发摘抄。实时记忆如下：</p>}
-
-                    {messages.length > 0 ? (
-                      messages.map((msg, i) => (
-                        <div key={i} style={{
-                          padding: '10px',
-                          borderRadius: '8px',
-                          backgroundColor: '#fff',
-                          borderLeft: `4px solid ${msg.role === 'user' ? '#3498db' : '#2ecc71'}`,
-                          fontSize: '13px',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-                        }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '4px', color: '#888', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>{msg.role === 'user' ? '用户 (USER)' : 'AI 助手 (ASSISTANT)'}</span>
-                            <span style={{ fontWeight: 'normal', opacity: 0.6 }}>#{i + 1}</span>
-                          </div>
-                          <div style={{ color: '#333', whiteSpace: 'pre-wrap' }}>
-                            {msg.content}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ textAlign: 'center', color: '#ccc', fontSize: '14px', py: 20 }}>暂无对话记录</div>
-                    )}
-                  </div>
-
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-              <button
-                onClick={() => setShowMemoryModal(false)}
-                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #ddd', cursor: 'pointer', backgroundColor: '#fff', fontSize: '14px' }}
-              >
-                关闭
-              </button>
-              <button
-                onClick={handleClearMemory}
-                style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', backgroundColor: '#e74c3c', color: 'white', fontSize: '14px' }}
-              >
-                清空记忆
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <MemoryModal
+        isOpen={showMemoryModal}
+        onClose={() => setShowMemoryModal(false)}
+        isLoading={isLoadingMemory}
+        summary={summary}
+        messages={messages}
+        onClear={handleClearMemory}
+      />
 
       {/* 人设查看模态框 */}
-      {showPersonalityModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '24px',
-            borderRadius: '16px',
-            width: '95%',
-            maxWidth: '800px',
-            maxHeight: '80vh',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>🎭 AI 人设配置</h3>
-            </div>
+      <PersonalityModal
+        isOpen={showPersonalityModal}
+        onClose={() => setShowPersonalityModal(false)}
+        content={aiPersonality.content}
+      />
 
-            <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
-              这里显示AI的当前人设配置，包括角色定位、语言风格和行为准则。
-            </p>
+      {/* 新增MCP模态框 */}
+      <AddMcpModal
+        isOpen={showAddMcpModal}
+        onClose={() => setShowAddMcpModal(false)}
+        mcpJsonContent={mcpJsonContent}
+        setMcpJsonContent={setMcpJsonContent}
+        onSave={handleSaveMcp}
+      />
 
-            <div style={{
-              flex: 1, overflowY: 'auto', backgroundColor: '#f8f9fa',
-              padding: '20px', borderRadius: '12px', border: '1px solid #ddd',
-              whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-            }}>
-              {aiPersonality.content}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowPersonalityModal(false)}
-                style={{
-                  padding: '10px 20px', borderRadius: '8px', border: '1px solid #ddd',
-                  cursor: 'pointer', backgroundColor: '#f8f9fa', fontSize: '14px'
-                }}
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{
-        backgroundColor: '#1a2530',
-        padding: '0 32px',
-        borderBottom: '1px solid #e0e0e0',
-        fontSize: '18px',
-        fontWeight: '600',
-        color: '#ffffff',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-
-        boxSizing: 'border-box',
-      }}>
-        <div style={{
-          display: 'flex',
-          height: '70px',
-          width: '100%',
-          justifyContent: 'space-between',
-          gap: '12px',
-          marginTop: '16px',
-        }}>
+      <div className='header'>
+        <div className='header-box'>
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
           }}>
-            <div style={{
-              width: '26px',
-              height: '26px',
-              borderRadius: '6px',
-              backgroundColor: '#3498db',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '18px',
-              fontWeight: '700',
-            }}>
+            <div className='ai-title'>
               AI
             </div>
             <span>智能对话助手</span>
           </div>
-          <div style={{
-            fontSize: '14px',
-            opacity: 0.8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-          }}>
+          <div className='ai-title-box'>
             <span>DeepSeek AI</span>
-            <div style={{
-              fontSize: '12px',
-              padding: '4px 12px',
-              borderRadius: '12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            }}>
+            <div className='version'>
               专业版
             </div>
             <button
               onClick={handleOpenMemoryModal}
-              style={{
-                fontSize: '12px',
-                padding: '6px 14px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(52, 152, 219, 0.8)',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease-in-out',
-              }}
+              className='memory'
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = 'rgba(52, 152, 219, 1)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
@@ -601,16 +417,7 @@ const ChatComponent = () => {
             </button>
             <button
               onClick={handleOpenPersonalityModal}
-              style={{
-                fontSize: '12px',
-                padding: '6px 14px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(155, 89, 182, 0.8)',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease-in-out',
-              }}
+              className='character'
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = 'rgba(155, 89, 182, 1)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
@@ -622,126 +429,70 @@ const ChatComponent = () => {
             >
               查看人设
             </button>
+            <button
+              onClick={handleOpenAddMcpModal}
+              style={{
+                fontSize: '12px',
+                padding: '6px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(46, 204, 113, 0.8)',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(46, 204, 113, 1)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(46, 204, 113, 0.8)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              新增MCP
+            </button>
           </div>
         </div>
       </div>
 
-      {/* 功能列表 */}
-      <div style={{
-        backgroundColor: '#ffffff',
-        padding: '0 16px',
-        borderBottom: '2px solid #e0e0e0',
-        display: 'flex',
-        flexWrap: 'nowrap',
-        overflowX: 'auto',
-        gap: '12px',
-        alignItems: 'center',
-        height: '70px',
-        boxSizing: 'border-box',
-        WebkitOverflowScrolling: 'touch',
-        scrollbarWidth: 'none',
-      }}>
-        <div style={{
-          fontSize: '14px',
-          fontWeight: '600',
-          color: '#2c3e50',
-          marginRight: '8px',
-          whiteSpace: 'nowrap',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}>
-          <span style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#3498db',
-          }}></span>
-          可用功能:
-        </div>
-        {availableFeatures.map((feature, index) => (
-          <div
-            key={index}
-            style={{
-              flexShrink: 0,
-              backgroundColor: '#ffffff',
-              padding: '10px 16px',
-              borderRadius: '12px',
-              border: '1px solid #e9ecef',
-              fontSize: '13px',
-              color: '#495057',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              minWidth: '140px',
-              textAlign: 'center',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-              transition: 'all 0.2s ease-in-out',
-              cursor: 'pointer',
-            }}
-            onClick={() => handleFeatureClick(feature.example)}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(52, 152, 219, 0.15)';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.borderColor = '#3498db';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e9ecef';
-            }}
-          >
-            <div style={{ fontWeight: '600', marginBottom: '4px', fontSize: '13px', color: '#2c3e50' }}>{feature.name}</div>
-            <div style={{ fontSize: '11px', color: '#6c757d', lineHeight: '1.2' }}>
-              {feature.example}
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* 功能列表按钮 */}
+      <section className="feature-bar">
+        <button
+          className="feature-button"
+          onClick={handleOpenFeaturesModal}
+        >
+          可用功能
+        </button>
+      </section>
+
+      {/* 功能列表弹窗 */}
+      <FeaturesModal
+        isOpen={showFeaturesModal}
+        onClose={() => setShowFeaturesModal(false)}
+        features={availableFeatures}
+        onFeatureClick={handleFeatureClick}
+      />
 
       {/* 错误提示 */}
       {error && (
-        <div style={{
-          backgroundColor: '#f8d7da',
-          padding: '12px 32px',
-          borderBottom: '1px solid #f5c6cb',
-          color: '#721c24',
-          fontSize: '14px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}>
+        <div className='error'>
           <span style={{ fontWeight: '500' }}>错误:</span>
           {error}
         </div>
       )}
 
       {/* 聊天区域 */}
-      <div style={{
-        flex: 1,
-        padding: '32px',
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '24px',
-        backgroundColor: '#fafafa',
-        backgroundImage: 'linear-gradient(to bottom, #fafafa 0%, #f8f9fa 100%)',
-      }}>
+      <div className='chat-window'>
         {summary && (
-          <div className="memory-card-container" style={{
-            marginBottom: '20px',
-            padding: '15px',
-            backgroundColor: '#fffbe6',
-            border: '1px solid #ffe58f',
-            borderRadius: '12px'
-          }}>
+          <div className="memory-card-container">
             <div style={{ fontWeight: 'bold', color: '#856404', fontSize: '13px' }}>
               🧠 已摘抄历史核心记忆：
             </div>
             <div style={{ fontSize: '12px', color: '#856404', marginTop: '5px' }}>
               {summary}
             </div>
-            <div style={{ textAlign: 'center', marginTop: '10px', borderTop: '1px dashed #ffe58f', pt: '5px' }}>
+            <div className="abstract">
               <span style={{ fontSize: '11px', color: '#b78110' }}>--- 以上为历史压缩数据，以下为最新对话 ---</span>
             </div>
           </div>
@@ -779,11 +530,11 @@ const ChatComponent = () => {
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
                 border: message.role === 'assistant' ? '1px solid #e9ecef' : 'none',
                 lineHeight: '1.6',
-                // 💡 重点修改：增加溢出滚动，防止表格撑破布局
+                //  增加溢出滚动，防止表格撑破布局
                 overflowX: 'auto',
               }}
             >
-              {/* 💡 重点修改：使用 ReactMarkdown 渲染助手的消息 */}
+              {/*  使用 ReactMarkdown 渲染助手的消息 */}
               {message.role === 'user' ? (
                 <p style={{ margin: 0, wordBreak: 'break-word', fontSize: '15px' }}>
                   {message.content}
@@ -800,46 +551,12 @@ const ChatComponent = () => {
         ))}
 
         {isLoading && (
-          <div
-            style={{
-              alignSelf: 'flex-start',
-              maxWidth: '35%',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{
-              fontSize: '12px',
-              color: '#6c757d',
-              marginBottom: '4px',
-              fontWeight: '500',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
+          <div className='ai-left'>
+            <div className='aiName'>
               助手
             </div>
-            <div
-              style={{
-                padding: '20px 24px',
-                borderRadius: '20px 20px 20px 6px',
-                backgroundColor: '#ffffff',
-                color: '#6c757d',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                border: '1px solid #e9ecef',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-              }}
-            >
-              <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '50%',
-                border: '2px solid #3498db',
-                borderTop: '2px solid transparent',
-                animation: 'spin 1s linear infinite',
-              }} />
+            <div className='processing-box'>
+              <div className='processing-text' />
               <p style={{ margin: 0, fontStyle: 'italic', fontSize: '15px' }}>
                 正在处理您的请求...
               </p>
@@ -851,91 +568,17 @@ const ChatComponent = () => {
       </div>
 
       {/* 输入区域 */}
-      <div style={{
-        padding: '16px 32px',
-        borderTop: '1px solid #e0e0e0',
-        backgroundColor: '#ffffff',
-        display: 'flex',
-        gap: '12px',
-        alignItems: 'center',
-        boxShadow: '0 -1px 6px rgba(0, 0, 0, 0.05)',
-      }}>
+      <footer className="input-footer">
         <input
-          type="text"
+          className="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-          style={{
-            flex: 1,
-            padding: '12px 20px',
-            borderRadius: '8px',
-            border: '1px solid #ced4da',
-            outline: 'none',
-            fontSize: '14px',
-            backgroundColor: '#f8f9fa',
-            boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.05)',
-            transition: 'all 0.2s ease-in-out',
-            minHeight: '44px',
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = '#3498db';
-            e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 2px rgba(52, 152, 219, 0.1)';
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = '#ced4da';
-            e.currentTarget.style.boxShadow = 'inset 0 1px 2px rgba(0, 0, 0, 0.05)';
-          }}
           placeholder="请输入您的问题..."
         />
-        <button
-          onClick={handleSend}
-          style={{
-            padding: '12px 24px',
-            borderRadius: '16px',
-            backgroundColor: '#3498db',
-            color: 'white',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: '600',
-            boxShadow: '0 2px 8px rgba(52, 152, 219, 0.25)',
-            transition: 'all 0.2s ease-in-out',
-            minWidth: '100px',
-            minHeight: '44px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#2980b9';
-            e.currentTarget.style.boxShadow = '0 3px 10px rgba(52, 152, 219, 0.35)';
-            e.currentTarget.style.transform = 'translateY(-1px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#3498db';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(52, 152, 219, 0.25)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <div style={{
-              width: '16px',
-              height: '16px',
-              borderRadius: '50%',
-              border: '2px solid #ffffff',
-              borderTop: '2px solid transparent',
-              animation: 'spin 1s linear infinite',
-            }} />
-          ) : (
-            <>
-              发送
-              <span style={{ fontSize: '16px' }}>→</span>
-            </>
-          )}
+        <button className="send-btn" onClick={handleSend} disabled={isLoading}>
+          {isLoading ? <div className="loading-spin" /> : "发送 →"}
         </button>
-      </div>
+      </footer>
     </div>
   );
 };

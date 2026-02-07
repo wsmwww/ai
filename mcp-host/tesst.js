@@ -6,7 +6,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import axios from 'axios';
-
+// 从MCP配置文件导入
+// import { MCP_CONFIGS } from './mcpConfig.js';
 const deepseekApi = axios.create({
     baseURL: 'https://api.deepseek.com/v1',
     timeout: 30000, // 总结任务可能较慢，给 30s
@@ -27,6 +28,18 @@ const chatSchema = new mongoose.Schema({
 });
 
 const Chat = mongoose.model('Chat', chatSchema);
+
+// 定义 MCP 配置 Schema  
+const mcpConfigSchema = new mongoose.Schema({
+    mcpKey: { type: String, unique: true, required: true }, // 如 'amap'
+    name: String,
+    url: String,
+    apiKey: String,
+    lastUpdated: { type: Date, default: Date.now }
+});
+
+const McpConfig = mongoose.model('McpConfig', mcpConfigSchema);
+
 // 加载环境变量
 dotenv.config();
 
@@ -72,8 +85,6 @@ io.on("connection", (socket) => {
     });
 });
 
-// 从MCP配置文件导入
-import { MCP_CONFIGS } from './mcpConfig.js';
 
 const mcpSessions = {};
 
@@ -81,8 +92,13 @@ const mcpSessions = {};
  * 初始化MCP会话
  */
 async function initializeMcpSession(mcpKey, force = false) {
-    const config = MCP_CONFIGS[mcpKey];
+    // const config = MCP_CONFIGS[mcpKey];
+    // 从数据库查询
+    let config = await McpConfig.findOne({ mcpKey });
     if (!config) throw new Error(`未知的 MCP: ${mcpKey}`);
+    if (!config) {
+        throw new Error(`未找到 [${mcpKey}] 的配置信息，请先在“新增MCP”中添加。`);
+    }
     if (!force && mcpSessions[mcpKey]?.isInitialized) return mcpSessions[mcpKey];
 
     const transport = new StreamableHTTPClientTransport(new URL(config.url), {
@@ -169,24 +185,68 @@ app.post('/mcp/initialize', async (req, res) => {
 app.get('/mcp/list-all-tools', async (req, res) => {
     try {
         const allTools = [];
-        // 遍历后端配置的所有 MCP
-        for (const mcpKey of Object.keys(MCP_CONFIGS)) {
-            const session = await initializeMcpSession(mcpKey);
-            // 格式化为前端 DeepSeek 需要的格式
-            const formattedTools = session.tools.map(tool => ({
-                type: "function",
-                function: {
-                    name: tool.name,
-                    description: tool.description || '',
-                    parameters: tool.inputSchema || {},
-                    mcpName: mcpKey // 标记归属哪个 MCP
-                }
-            }));
-            allTools.push(...formattedTools);
+        // 从数据库获取所有已注册的 MCP 键名
+        const configs = await McpConfig.find({}, 'mcpKey');
+
+        for (const conf of configs) {
+            const mcpKey = conf.mcpKey;
+            try {
+                const session = await initializeMcpSession(mcpKey);
+                const formattedTools = session.tools.map(tool => ({
+                    type: "function",
+                    function: {
+                        name: tool.name,
+                        description: tool.description || '',
+                        parameters: tool.inputSchema || {},
+                        mcpName: mcpKey
+                    }
+                }));
+                allTools.push(...formattedTools);
+            } catch (e) {
+                console.error(`加载 MCP [${mcpKey}] 失败，跳过:`, e.message);
+            }
         }
         res.json({ success: true, tools: allTools });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
+    }
+});
+/**
+ * 保存或更新 MCP 配置
+ */
+app.post('/mcp/save-config', async (req, res) => {
+    try {
+        let { mcpKey, name, url, apiKey } = req.body;
+
+        // 【兼容性逻辑】：如果你传的是 { amap: { ... } }
+        if (!mcpKey && Object.keys(req.body).length === 1) {
+            const key = Object.keys(req.body)[0];
+            const data = req.body[key];
+            if (data.url) {
+                mcpKey = key;
+                name = data.name;
+                url = data.url;
+                apiKey = data.apiKey;
+            }
+        }
+
+        if (!mcpKey || !url) {
+            return res.status(400).json({ success: false, error: "识别失败：请确保 JSON 包含 mcpKey 和 url" });
+        }
+
+        // 存入数据库
+        await McpConfig.findOneAndUpdate(
+            { mcpKey },
+            { mcpKey, name, url, apiKey, lastUpdated: new Date() },
+            { upsert: true }
+        );
+
+        // 清理旧缓存
+        if (mcpSessions[mcpKey]) delete mcpSessions[mcpKey];
+
+        res.json({ success: true, msg: `MCP [${mcpKey}] 已更新` });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 app.get('/mcp/tools', async (req, res) => {
@@ -268,6 +328,7 @@ app.get('/mcp/status', (req, res) => {
         }))
     });
 });
+
 // 1. 获取历史记录
 app.get('/chat/history/:sessionId', async (req, res) => {
     try {

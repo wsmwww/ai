@@ -10,6 +10,7 @@ const deepseekApi = axios.create({
         'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
     },
 });
+import { MCP_PROXY_URL } from '../config';
 
 function mcpToolsToDeepSeekTools(mcp, tools) {
     if (!tools) return [];
@@ -148,22 +149,25 @@ export const getDeepSeekResponse = async (messages) => {
 };
 
 async function getAllAvailableTools() {
-    console.log("📡 正在同步 MCP 工具列表...");
+    console.log("📡 正在全量同步远程 MCP 工具列表...");
     try {
-        const [amapRes, ticketRes] = await Promise.all([
-            getMcpTools('amap'),
-            getMcpTools('ticket')
-        ]);
+        // 1. 从后端获取所有已配置的 MCP 工具
+        const response = await axios.get(`${MCP_PROXY_URL}/mcp/list-all-tools`);
+        const remoteTools = response.data.tools || [];
 
-        const tools = [
-            ...mcpToolsToDeepSeekTools('amap', amapRes.tools),
-            ...mcpToolsToDeepSeekTools('ticket', ticketRes.tools),
-            gitTool, saveReportTool, emailTool
+        // 2. 合并本地预定义的系统工具 (Git, Email, Save)
+        const allTools = [
+            ...remoteTools,
+            gitTool, 
+            saveReportTool, 
+            emailTool
         ];
-        mcpToolsCache = tools; // 存入缓存
-        return tools;
+
+        console.log(`✅ 同步完成，当前 AI 拥有 ${allTools.length} 项技能`);
+        mcpToolsCache = allTools; 
+        return allTools;
     } catch (e) {
-        console.error("同步工具失败", e);
-        return [];
+        console.error("❌ 动态同步工具失败，降级使用本地工具", e);
+        return [gitTool, saveReportTool, emailTool];
     }
 }
