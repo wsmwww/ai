@@ -7,7 +7,7 @@ import axios from 'axios';
 import { aiPersonality } from './services/aiPersonality';
 import { PersonalityModal, AddMcpModal, MemoryModal, FeaturesModal } from './components/ChatModals';
 import './ChatComponent.css';
-import {MCP_PROXY_URL} from './config';
+import { MCP_PROXY_URL } from './config';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
   const style = document.createElement('style');
@@ -88,7 +88,7 @@ const ChatComponent = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef(null);
-const [toolList, setToolList] = useState([]);
+  const [toolList, setToolList] = useState([]);
 
   // --- 新增状态：控制确认弹窗 ---
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -112,6 +112,8 @@ const [toolList, setToolList] = useState([]);
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+  // 流式处理
+  const [history, setHistory] = useState([]); // 确保它永远是个数组
   // 初始化加载记忆
   useEffect(() => {
     const loadHistory = async () => {
@@ -176,73 +178,63 @@ const [toolList, setToolList] = useState([]);
     setShowConfirmModal(false);
   };
   const [summary, setSummary] = useState("");
-
+  const handleKeyDown = (e) => {
+    console.log(e.key)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
   const handleSend = async () => {
     if (!input.trim()) return;
 
-    setError('');
-    const userMessage = {
-      role: 'user',
-      content: input,
-    };
-
-    // 1. 构造发给 AI 的 Payload
-    let payload = [];
-    if (summary) {
-      payload.push({
-        role: 'system',
-        content: `【长期记忆背景】：${summary}`
-      });
-    }
-    const updatedMessagesWithUser = [...messages, userMessage];
-    payload.push(...updatedMessagesWithUser);
-
-    // 立即更新 UI 显示用户消息
-    setMessages(updatedMessagesWithUser);
+    // 1. 立即展示用户消息
+    const userMsg = { role: 'user', content: input };
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
 
+    // 2. 预设一条空的 AI 消息，准备填入内容
+    const aiMsgId = Date.now();
+    setMessages(prev => [...prev, { id: aiMsgId, role: 'assistant', content: '', isPlanning: true }]);
+
     try {
-      // 2. 第一步：只等待 AI 的回复
-      const response = await getDeepSeekResponse(payload);
-
-      const assistantMessage = {
-        role: 'assistant',
-        content: response,
-      };
-      const finalMessages = [...updatedMessagesWithUser, assistantMessage];
-
-      // --- 【关键改动点 1】：AI 回复一拿到，立刻更新消息列表并关闭转圈 ---
-      setMessages(finalMessages);
-      setIsLoading(false);
-
-      // --- 【关键改动点 2】：静默保存，不再使用 await 阻塞 UI ---
-      // 我们去掉 await，让它在后台运行
-      axios.post(`${MCP_PROXY_URL}/chat/save`, {
-        sessionId: SESSION_ID,
-        messages: finalMessages
-      }).then(saveRes => {
-        // 保存成功后，更新摘要和可能的截断列表
-        if (saveRes.data.success && saveRes.data.summary) {
-          setSummary(saveRes.data.summary);
-          if (saveRes.data.isCompressed) {
-            // 如果触发了压缩，替换历史记录，用户无感
-            setMessages(saveRes.data.messages || finalMessages.slice(-4));
-          }
-        }
-      }).catch(err => {
-        console.error('后台保存失败，但对话不受影响:', err);
+      // 3. 调用我们新写的流式接口
+      const response = await fetch('http://localhost:3334/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...history, userMsg] })
       });
 
-    } catch (error) {
-      console.error('Error in handleSend:', error);
-      setError('Failed to get response from DeepSeek API.');
-      const errorMessage = {
-        role: 'assistant',
-        content: 'Sorry, there was an error processing your request.',
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      // 报错也要关闭加载状态
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let currentFullContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') break;
+
+            const data = JSON.parse(dataStr);
+            currentFullContent += data.content;
+
+            // 4. 关键：实时更新 AI 的回复内容
+            setMessages(prev => prev.map(m =>
+              m.id === aiMsgId ? { ...m, content: currentFullContent } : m
+            ));
+          }
+        }
+      }
+    } catch (err) {
+      console.error("读取流失败:", err);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -316,7 +308,7 @@ const [toolList, setToolList] = useState([]);
     try {
       const configData = JSON.parse(mcpJsonContent);
       // 假设 JSON 格式为: { "mcpKey": "weather", "name": "天气服务", "url": "...", "apiKey": "..." }
-console.log(configData,'configData')
+      console.log(configData, 'configData')
       const res = await axios.post(`${MCP_PROXY_URL}/mcp/save-config`, configData);
       if (res.data.success) {
         alert("配置保存成功！");
@@ -324,11 +316,11 @@ console.log(configData,'configData')
       }
     } catch (e) {
 
-      console.error(e,"eeee")
-      alert("保存失败，请检查 JSON 格式或网络",e);
+      console.error(e, "eeee")
+      alert("保存失败，请检查 JSON 格式或网络", e);
     }
   };
-  
+
   return (
     <div className='layout'>
       {/* 邮箱模态框 */}
@@ -562,8 +554,10 @@ console.log(configData,'configData')
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="请输入您的问题..."
+          onKeyDown={handleKeyDown}
         />
-        <button className="send-btn" onClick={handleSend} disabled={isLoading}>
+        {/* 回车发送 */}
+        <button className="send-btn" onClick={handleSend} disabled={isLoading} >
           {isLoading ? <div className="loading-spin" /> : "发送 →"}
         </button>
       </footer>

@@ -22,7 +22,6 @@ const deepSeekTools = [
 ];
 
 export const runCronReport = async () => {
-    console.log("🛠️ [Cron] 启动全自动任务...");
 
     // 初始指令
     let preparedMessages = [
@@ -44,7 +43,6 @@ export const runCronReport = async () => {
         const message = response.data.choices[0].message;
 
         if (!message.tool_calls) {
-            console.log("✅ 任务结果:", message.content);
             return message.content;
         }
 
@@ -54,7 +52,6 @@ export const runCronReport = async () => {
             const toolName = toolCall.function.name;
             const args = JSON.parse(toolCall.function.arguments);
 
-            console.log(`📡 [Cron] 调用工具: ${toolName}`);
 
             // 直接执行本地逻辑
             const result = await localToolsLogic[toolName](args);

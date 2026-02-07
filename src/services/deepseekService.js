@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { callMcpTool, getMcpTools } from './mcpService';
+import { callMcpTool } from './mcpService';
 import { DEEPSEEK_API_KEY } from '../config';
 // 从AI人设配置文件导入
 import { aiPersonality } from './aiPersonality.js';
@@ -12,18 +12,6 @@ const deepseekApi = axios.create({
 });
 import { MCP_PROXY_URL } from '../config';
 
-function mcpToolsToDeepSeekTools(mcp, tools) {
-    if (!tools) return [];
-    return tools.map(tool => ({
-        type: "function",
-        function: {
-            name: tool.name,
-            description: tool.description || '',
-            parameters: tool.inputSchema || {},
-            mcpName: mcp // 自定义字段，用于后续匹配
-        }
-    }));
-}
 
 const systemPrompt = aiPersonality;
 const gitTool = {
@@ -92,7 +80,7 @@ export const getDeepSeekResponse = async (messages) => {
     // --- 策略：静默预加载 ---
     // 如果缓存为空，异步去拿，但不阻塞当前的对话发送
     if (!mcpToolsCache) {
-        console.log("🚀 首次运行，等待工具同步...");
+        console.log("首次运行，等待工具同步...");
         mcpToolsCache = await getAllAvailableTools(); // 改为 await，阻塞等待
     }
 
@@ -127,7 +115,7 @@ export const getDeepSeekResponse = async (messages) => {
             const args = JSON.parse(toolCall.function.arguments);
             const toolConfig = tools.find(item => item.function.name === toolName);
 
-            console.log(`🛠️ AI 决定调用工具: ${toolName}`);
+            console.log(` AI 决定调用工具: ${toolName}`);
 
             let result;
             if (toolConfig) {
@@ -149,7 +137,7 @@ export const getDeepSeekResponse = async (messages) => {
 };
 
 async function getAllAvailableTools() {
-    console.log("📡 正在全量同步远程 MCP 工具列表...");
+    console.log(" 正在全量同步远程 MCP 工具列表...");
     try {
         // 1. 从后端获取所有已配置的 MCP 工具
         const response = await axios.get(`${MCP_PROXY_URL}/mcp/list-all-tools`);
@@ -163,7 +151,7 @@ async function getAllAvailableTools() {
             emailTool
         ];
 
-        console.log(`✅ 同步完成，当前 AI 拥有 ${allTools.length} 项技能`);
+        console.log(` 同步完成，当前 AI 拥有 ${allTools.length} 项技能`);
         mcpToolsCache = allTools; 
         return allTools;
     } catch (e) {

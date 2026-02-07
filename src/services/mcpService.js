@@ -21,10 +21,9 @@ export async function ensureMcpInitialized(mcp = 'amap') {
 
     try {
         const response = await mcpApi.post('/mcp/initialize', { mcp });
-        console.log('MCP初始化响应:', response);
         if (response.data.success) {
             isMcpInitialized = true;
-            console.log('✅ MCP服务初始化成功，可用工具数量:', response.data.toolsCount);
+            console.log(' MCP服务初始化成功，可用工具数量:', response.data.toolsCount);
             return response.data;
         }
         throw new Error('MCP初始化失败');
@@ -32,22 +31,6 @@ export async function ensureMcpInitialized(mcp = 'amap') {
         console.error('❌ MCP服务初始化失败:', error);
         // 即使初始化失败，也尝试继续（可能已经初始化过了）
         isMcpInitialized = false;
-        throw error;
-    }
-}
-
-/**
- * 获取MCP工具列表
- */
-export async function getMcpTools(mcp = 'amap') {
-    try {
-        await ensureMcpInitialized(mcp);
-        const response = await mcpApi.get('/mcp/tools', {
-            params: { mcp, }
-        });
-        return response.data;
-    } catch (error) {
-        console.error('获取MCP工具列表失败:', error);
         throw error;
     }
 }

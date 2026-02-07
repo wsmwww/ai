@@ -96,7 +96,7 @@ export const MemoryModal = ({
     <div style={memoryOverlayStyle}>
       <div className='memoryCenter'>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px' }}>🧠 AI 记忆中心</h3>
+          <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px' }}>记忆中心</h3>
           <div style={{ display: 'flex', gap: '8px' }}>
             {summary && <span style={tagDeepStyle}>深度摘抄</span>}
             <span style={tagRealtimeStyle}>实时对话</span>
@@ -112,7 +112,7 @@ export const MemoryModal = ({
               {/* --- 第一部分：深度摘抄内容 --- */}
               {summary && (
                 <div style={summaryBoxStyle}>
-                  <div style={summaryTitleStyle}>📜 核心摘抄摘要</div>
+                  <div style={summaryTitleStyle}>核心摘抄摘要</div>
                   <div style={summaryTextStyle}>{summary}</div>
                 </div>
               )}
@@ -165,7 +165,7 @@ export const PersonalityModal = ({ isOpen, onClose, content }) => {
     <div style={modalOverlayStyle}>
       <div className="modal-card-large" style={modalCardStyle}>
         <div style={modalHeaderStyle}>
-          <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>🎭 AI 人设配置</h3>
+          <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>人设配置</h3>
         </div>
         <p style={{ color: '#666', fontSize: '14px', margin: '10px 0' }}>
           这里显示AI的当前人设配置，包括角色定位、语言风格和行为准则。

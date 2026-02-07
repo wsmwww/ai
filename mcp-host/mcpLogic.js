@@ -15,7 +15,7 @@ export const sendMailInternal = async (subject, content, to) => {
     const myRealEmail = '1799706863@qq.com';
     let targetEmail = to || myRealEmail;
     if (targetEmail.includes('example.com')) {
-        console.log(`⚠️ 检测到无效收件人 ${targetEmail}，已重定向至 ${myRealEmail}`);
+        console.log(` 检测到无效收件人 ${targetEmail}，已重定向至 ${myRealEmail}`);
         targetEmail = myRealEmail;
     }
     return await transporter.sendMail({
@@ -34,7 +34,7 @@ export const localToolsLogic = {
             const stdout = execSync(command).toString().trim();
 
             if (!stdout) return "今天还没有提交任何代码。";
-            console.log("🎸 成功获取真实 Git 记录");
+            console.log("成功获取真实 Git 记录");
             return stdout;
         } catch (error) {
             console.error("❌ 获取 Git 失败:", error.message);

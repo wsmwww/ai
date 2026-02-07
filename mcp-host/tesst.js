@@ -7,7 +7,6 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import axios from 'axios';
 // 从MCP配置文件导入
-// import { MCP_CONFIGS } from './mcpConfig.js';
 const deepseekApi = axios.create({
     baseURL: 'https://api.deepseek.com/v1',
     timeout: 30000, // 总结任务可能较慢，给 30s
@@ -16,7 +15,7 @@ const deepseekApi = axios.create({
 const uri = process.env.MONGODB_URI;
 
 mongoose.connect(uri)
-    .then(() => console.log("🍃 恭喜！你的 Node 服务已成功连接到云端 MongoDB"))
+    .then(() => console.log("恭喜！你的 Node 服务已成功连接到云端 MongoDB"))
     .catch(err => console.error("❌ 数据库连接失败:", err));
 
 // 定义一个简单的 Schema 来存聊天记录
@@ -63,12 +62,12 @@ const PORT = process.env.PORT || 3334;
 let pendingReportTask = null;
 // ==================== Socket 实时通信逻辑 ====================
 io.on("connection", (socket) => {
-    console.log("📱 前端交互页面已连接，准备好推送确认弹窗");
+    console.log(" 前端交互页面已连接，准备好推送确认弹窗");
 
     // 接收前端点击“确认发送”的指令
     socket.on("approve_send_daily", async () => {
         if (pendingReportTask) {
-            console.log("🚀 收到用户确认，开始正式发送邮件...");
+            console.log("收到用户确认，开始正式发送邮件...");
             try {
                 await sendMailInternal('今日工作日报 (已确认)', pendingReportTask.content);
                 socket.emit("report_status", { success: true, msg: "邮件已飞向邮箱！" });
@@ -80,7 +79,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("reject_send_daily", () => {
-        console.log("🗑️ 用户取消了本次发送");
+        console.log(" 用户取消了本次发送");
         pendingReportTask = null;
     });
 });
@@ -92,7 +91,6 @@ const mcpSessions = {};
  * 初始化MCP会话
  */
 async function initializeMcpSession(mcpKey, force = false) {
-    // const config = MCP_CONFIGS[mcpKey];
     // 从数据库查询
     let config = await McpConfig.findOne({ mcpKey });
     if (!config) throw new Error(`未知的 MCP: ${mcpKey}`);
@@ -143,7 +141,7 @@ async function callMcpTool(mcpKey, toolName, args = {}) {
                 await initializeMcpSession(mcpKey, true);
 
                 // 2. 重连后立即重试本次调用
-                console.log(`🚀 重连成功，正在重试工具 [${toolName}]`);
+                console.log(`重连成功，正在重试工具 [${toolName}]`);
                 return await mcpSessions[mcpKey].client.callTool({
                     name: toolName,
                     arguments: args,
@@ -182,6 +180,9 @@ app.post('/mcp/initialize', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+/**
+ * 2.查询所有已注册的MCP工具
+ */
 app.get('/mcp/list-all-tools', async (req, res) => {
     try {
         const allTools = [];
@@ -249,23 +250,9 @@ app.post('/mcp/save-config', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-app.get('/mcp/tools', async (req, res) => {
-    const mcp = req.query.mcp || 'amap';
-
-    try {
-        const session = await initializeMcpSession(mcp);
-        res.json({
-            success: true,
-            mcp,
-            tools: session.tools,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-
+/**
+ * 3.调用MCP工具
+ */
 app.post('/mcp/call', async (req, res) => {
     try {
         const { mcp, tool, args } = req.body;
@@ -281,52 +268,6 @@ app.post('/mcp/call', async (req, res) => {
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
-});
-
-/**
- * 4. 调用高德地图工具端点（便捷接口）
- */
-app.post('/mcp/amap', async (req, res) => {
-    try {
-        const { tool, args } = req.body;
-
-        if (!tool) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少必填参数: tool'
-            });
-        }
-
-        const result = await callMcpTool(tool, args || {});
-
-        res.json({
-            success: true,
-            tool: tool,
-            result: result,
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('高德地图工具调用失败:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            tool: req.body.tool
-        });
-    }
-});
-
-/**
- * 6. 状态检查端点
- */
-app.get('/mcp/status', (req, res) => {
-    res.json({
-        success: true,
-        mcps: Object.keys(MCP_CONFIGS).map(name => ({
-            name,
-            initialized: !!mcpInstances[name]?.initialized,
-            toolsCount: mcpSessions[name]?.tools?.length || 0
-        }))
-    });
 });
 
 // 1. 获取历史记录
@@ -362,13 +303,11 @@ app.post('/chat/save', async (req, res) => {
 
         // 3. 压缩策略：如果字数超过 4000 字符
         if (totalChars > 4000) {
-            console.log("📏 对话过长，后端开始执行智能总结...");
             const newSummary = await generateSummary(oldSummary, messages);
             updateData.summary = newSummary;
             // 保留最后 5 条消息作为直接上下文
             updateData.messages = messages.slice(-5);
-
-            console.log("✅ 摘要更新完毕，历史已裁切");
+            console.log("摘要更新完毕，历史已裁切");
         }
 
         // 4. 更新数据库
@@ -404,11 +343,64 @@ app.post('/chat/clear/:sessionId', async (req, res) => {
             { upsert: true, new: true }
         );
 
-        console.log(`🧹 已清空会话记忆: ${sessionId}`);
+        console.log(` 已清空会话记忆: ${sessionId}`);
         res.json({ success: true, message: "记忆已重置" });
     } catch (err) {
         console.error("❌ 清空记忆接口报错:", err);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+// 流式处理
+app.post('/chat/stream', async (req, res) => {
+    const { messages } = req.body;
+
+    // 1. 设置 SSE 响应头，通知前端
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    try {
+        const response = await axios.post('https://api.deepseek.com/chat/completions', {
+            model: 'deepseek-chat',
+            messages: messages,
+            stream: true, // 开启流式关键
+            temperature: 0.7, // 稍微调高一点，让计划更有条理
+        }, {
+            headers: {
+                'Authorization': `Bearer ${process.env.VITE_DEEPSEEK_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            responseType: 'stream' // 必须是 stream
+        });
+
+        // 2. 监听 DeepSeek 返回的流并转发给前端
+        response.data.on('data', (chunk) => {
+            const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
+
+            for (const line of lines) {
+                const message = line.replace(/^data: /, '');
+                if (message === '[DONE]') {
+                    res.write('data: [DONE]\n\n');
+                    return res.end();
+                }
+
+                try {
+                    const parsed = JSON.parse(message);
+                    const content = parsed.choices[0].delta.content || '';
+                    if (content) {
+                        // 将字传给前端
+                        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+                    }
+                } catch (e) {
+                    // 忽略解析错误
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("流式输出报错:", error.message);
+        res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.end();
     }
 });
 async function generateSummary(oldSummary, messages) {
@@ -448,7 +440,7 @@ async function generateSummary(oldSummary, messages) {
 
     try {
         const summary = await getAIResponseSimple(summaryPrompt);
-        console.log("✅ 生成摘要:", summary);
+        console.log(" 生成摘要:", summary);
         return summary;
     } catch (err) {
         console.error("生成摘要失败，跳过本次压缩:", err);
@@ -461,7 +453,7 @@ async function getAIResponseSimple(messages) {
         const response = await deepseekApi.post('/chat/completions', {
             model: 'deepseek-chat',
             messages: messages,
-            temperature: 0.3, // 总结不需要太多创意，低随机性更稳定
+            temperature: 0.5, // 总结不需要太多创意，低随机性更稳定
         }, {
             headers: {
                 'Authorization': `Bearer ${process.env.VITE_DEEPSEEK_API_KEY}`,
@@ -484,7 +476,7 @@ const randomMinute = Math.floor(Math.random() * 60);
 // 30s执行 '*/30 * * * * *'
 cron.schedule(`${randomMinute} 19 * * 1-5`, async () => {
     try {
-        console.log("🤖 AI 正在生成日报内容...");
+        console.log(" AI 正在生成日报内容...");
         // 这里的 runCronReport 内部要确保不直接调 send_daily_email
         const finalReport = await runCronReport();
 
@@ -497,15 +489,15 @@ cron.schedule(`${randomMinute} 19 * * 1-5`, async () => {
             time: new Date().toLocaleString()
         });
 
-        console.log("📢 内容已生成，等待前端用户确认...");
+        console.log(" 内容已生成，等待前端用户确认...");
     } catch (err) {
         console.error("❌ 定时任务异常:", err.message);
     }
 });
 
-console.log("⏰ 定时任务已就绪：周一至周五 18:00");
+console.log(" 定时任务已就绪：周一至周五 18:00");
 process.on('SIGTERM', async () => {
-    console.log('\n🛑 收到 SIGTERM，关闭 MCP 客户端...');
+    console.log('\n 收到 SIGTERM，关闭 MCP 客户端...');
     for (const session of Object.values(mcpSessions)) {
         try { await session.client.close(); } catch { }
     }
@@ -513,7 +505,7 @@ process.on('SIGTERM', async () => {
 });
 
 process.on('SIGINT', async () => {
-    console.log('\n🛑 收到 SIGINT，关闭 MCP 客户端...');
+    console.log('\n 收到 SIGINT，关闭 MCP 客户端...');
     for (const session of Object.values(mcpSessions)) {
         try { await session.client.close(); } catch { }
     }
