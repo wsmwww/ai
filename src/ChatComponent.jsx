@@ -7,6 +7,7 @@ import axios from 'axios';
 import { aiPersonality } from './services/aiPersonality';
 import { PersonalityModal, AddMcpModal, MemoryModal, FeaturesModal } from './components/ChatModals';
 import './ChatComponent.css';
+import {MCP_PROXY_URL} from './config';
 // 添加全局样式
 if (!document.getElementById('chat-component-styles')) {
   const style = document.createElement('style');
@@ -79,7 +80,7 @@ if (!document.getElementById('chat-component-styles')) {
   `;
   document.head.appendChild(style);
 }
-const socket = io('http://localhost:3334');
+const socket = io(MCP_PROXY_URL);
 const SESSION_ID = "user_001"; // 暂时硬编码，后续可以根据登录用户动态获取
 const ChatComponent = () => {
   const [messages, setMessages] = useState([]);
@@ -87,7 +88,7 @@ const ChatComponent = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef(null);
-
+const [toolList, setToolList] = useState([]);
 
   // --- 新增状态：控制确认弹窗 ---
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -115,7 +116,7 @@ const ChatComponent = () => {
   useEffect(() => {
     const loadHistory = async () => {
       try {
-        const res = await axios.get(`http://localhost:3334/chat/history/${SESSION_ID}`);
+        const res = await axios.get(`${MCP_PROXY_URL}/chat/history/${SESSION_ID}`);
         if (res.data.success && res.data.messages) {
           setMessages(res.data.messages);
           setSummary(res.data.summary || "");
@@ -124,6 +125,19 @@ const ChatComponent = () => {
         console.error("加载历史记录失败:", err);
       }
     };
+    // 初始化加载工具列表
+    const loadToolList = async () => {
+      try {
+        const res = await axios.get(`${MCP_PROXY_URL}/mcp/list-all-tools`);
+        console.log("工具列表:", res.data.tools);
+        if (res.data.success && res.data.tools) {
+          setToolList(res.data.tools);
+        }
+      } catch (err) {
+        console.error("加载工具列表失败:", err);
+      }
+    };
+    loadToolList();
     loadHistory();
   }, []);
 
@@ -204,7 +218,7 @@ const ChatComponent = () => {
 
       // --- 【关键改动点 2】：静默保存，不再使用 await 阻塞 UI ---
       // 我们去掉 await，让它在后台运行
-      axios.post('http://localhost:3334/chat/save', {
+      axios.post(`${MCP_PROXY_URL}/chat/save`, {
         sessionId: SESSION_ID,
         messages: finalMessages
       }).then(saveRes => {
@@ -243,7 +257,7 @@ const ChatComponent = () => {
   const handleOpenMemoryModal = async () => {
     setIsLoadingMemory(true);
     try {
-      const res = await axios.get(`http://localhost:3334/chat/history/${SESSION_ID}`);
+      const res = await axios.get(`${MCP_PROXY_URL}/chat/history/${SESSION_ID}`);
       if (res.data.success) {
         // 更新本地 summary，用于判断是否展示“摘抄”
         setSummary(res.data.summary || "");
@@ -262,15 +276,7 @@ const ChatComponent = () => {
   const handleClearMemory = async () => {
     if (window.confirm("确定要清空 AI 记忆并删除当前聊天记录吗？")) {
       try {
-        const res = await axios.post(`http://localhost:3334/chat/clear/${SESSION_ID}`);
-        // if (res.data.success) {
-        //   // ✨ 同步清空前端的所有状态
-        //   setMessages([]);      // 清空聊天气泡列表
-        //   setSummary("");       // 清空摘要状态
-        //   setMemoryContent("记忆已清空"); // 更新你的记忆显示区内容
-
-        //   alert("AI 记忆已成功重置");
-        // }
+        const res = await axios.post(`${MCP_PROXY_URL}/chat/clear/${SESSION_ID}`);
         if (res.data.success) {
           // 存储摘要
           setSummary(res.data.summary || "");
@@ -311,7 +317,7 @@ const ChatComponent = () => {
       const configData = JSON.parse(mcpJsonContent);
       // 假设 JSON 格式为: { "mcpKey": "weather", "name": "天气服务", "url": "...", "apiKey": "..." }
 console.log(configData,'configData')
-      const res = await axios.post(`http://localhost:3334/mcp/save-config`, configData);
+      const res = await axios.post(`${MCP_PROXY_URL}/mcp/save-config`, configData);
       if (res.data.success) {
         alert("配置保存成功！");
         setShowAddMcpModal(false);
@@ -322,25 +328,7 @@ console.log(configData,'configData')
       alert("保存失败，请检查 JSON 格式或网络",e);
     }
   };
-  // 可用功能列表
-  const availableFeatures = [
-    {
-      name: "天气查询",
-      description: "获取指定城市的实时天气信息",
-      example: "现在适合去黑龙江旅游吗"
-    },
-    {
-      name: "地点搜索",
-      description: "查询指定城市的场所信息（餐饮、酒店、景点、商铺等）",
-      example: "深圳龙岗区塘坑地铁站附近的肯德基有哪些"
-    },
-    {
-      name: "车站查询",
-      description: "查询指定城市的车站信息",
-      example: "深圳市的车站有哪些"
-    }
-  ];
-
+  
   return (
     <div className='layout'>
       {/* 邮箱模态框 */}
@@ -470,7 +458,7 @@ console.log(configData,'configData')
       <FeaturesModal
         isOpen={showFeaturesModal}
         onClose={() => setShowFeaturesModal(false)}
-        features={availableFeatures}
+        features={toolList}
         onFeatureClick={handleFeatureClick}
       />
 

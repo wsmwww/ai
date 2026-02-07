@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag } from 'antd';
+import { Tag, Tooltip } from 'antd';
 
 export const FeaturesModal = ({ isOpen, onClose, features, onFeatureClick }) => {
   if (!isOpen) return null;
@@ -8,7 +8,7 @@ export const FeaturesModal = ({ isOpen, onClose, features, onFeatureClick }) => 
     <div style={modalOverlayStyle}>
       <div style={featuresCardStyle}>
         <div style={modalHeaderStyle}>
-          <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>🔧 可用功能</h3>
+          <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' }}>可用工具</h3>
           <button onClick={onClose} style={closeBtnIconStyle}>关闭</button>
         </div>
 
@@ -16,26 +16,66 @@ export const FeaturesModal = ({ isOpen, onClose, features, onFeatureClick }) => 
           点击功能标签可自动输入示例到聊天框
         </p>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '8px' }}>
-          {features.map((feature, index) => (
-            <Tag
-              key={index}
-              color="blue"
-              style={{
-                padding: '8px 16px',
-                fontSize: '14px',
-                cursor: 'pointer',
-                borderRadius: '8px',
-                transition: 'all 0.2s ease-in-out'
-              }}
-              onClick={() => {
-                onFeatureClick(feature.example);
-                onClose();
-              }}
-            >
-              {feature.name}
-            </Tag>
-          ))}
+        <div style={{ marginTop: '8px' }}>
+          {/* 按mcpName分组 */}
+          {(() => {
+            // 分组逻辑
+            const groupedFeatures = features.reduce((groups, feature) => {
+              const mcpName = feature.function?.mcpName || '其他';
+              if (!groups[mcpName]) {
+                groups[mcpName] = [];
+              }
+              groups[mcpName].push(feature);
+              return groups;
+            }, {});
+            
+            // 渲染分组
+            return Object.entries(groupedFeatures).map(([mcpName, groupFeatures], groupIndex) => (
+              <div key={groupIndex} style={{ marginBottom: '16px' }}>
+                {/* 分组标题 */}
+                <div style={{ 
+                  fontSize: '14px', 
+                  fontWeight: '600', 
+                  color: '#2c3e50', 
+                  marginBottom: '8px',
+                  borderLeft: '3px solid #3498db',
+                  paddingLeft: '8px'
+                }}>
+                  {mcpName === '其他' ? '其他功能' : `${mcpName.toUpperCase()} 工具`}
+                </div>
+                
+                {/* 分组内的功能标签 */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {groupFeatures.map((feature, index) => (
+                    <Tooltip
+                      key={index}
+                      title={feature.function?.description || '暂无描述'}
+                      placement="top"
+                      color="black"
+                      arrowPointAtCenter
+                    >
+                      <Tag
+                        color="blue"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          borderRadius: '6px',
+                          transition: 'all 0.2s ease-in-out'
+                        }}
+                        onClick={() => {
+                          onFeatureClick(feature.example);
+                          onClose();
+                        }}
+                      >
+                        {feature.function?.name || feature.name}
+                      </Tag>
+                    </Tooltip>
+                  ))}
+                </div>
+              </div>
+            ));
+          })()}
         </div>
       </div>
     </div>
